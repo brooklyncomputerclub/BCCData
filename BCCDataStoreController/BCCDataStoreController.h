@@ -11,6 +11,7 @@
 @class BCCTargetActionQueue;
 @class BCCDataStoreController;
 @class BCCDataStoreControllerWorkParameters;
+@class BCCDataStoreControllerImportParameters;
 
 
 extern NSString *BCCDataStoreControllerWillClearDatabaseNotification;
@@ -93,7 +94,7 @@ typedef enum {
 - (NSManagedObject *)findOrCreateObjectWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier;
 
 // Entity Mass Creation
-- (NSArray *)createObjectsOfEntityType:(NSString *)entityName fromDictionaryArray:(NSArray *)dictionaryArray usingContextParameters:(BCCDataStoreControllerWorkParameters *)contextParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
+- (NSArray *)createObjectsOfEntityType:(NSString *)entityName fromDictionaryArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)workParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
 
 - (NSArray *)createObjectsOfEntityType:(NSString *)entityName fromDictionaryArray:(NSArray *)dictionaryArray findExisting:(BOOL)findExisting dictionaryIdentityProperty:(NSString *)dictionaryIdentityPropertyName modelIdentityProperty:(NSString *)modelIdentityPropertyName groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
 

@@ -772,7 +772,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     id normalizedIdentityValue = [self normalizedIdentityValueForValue:identityValue];
     [createdObject setValue:normalizedIdentityValue forKey:identityPropertyName];
     
-    if (groupIdentifier) {
+    if (groupIdentifier && groupPropertyName) {
         [createdObject setValue:groupIdentifier forKey:groupPropertyName];
     }
 
@@ -820,7 +820,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     return object;
 }
 
-- (NSArray *)createObjectsOfEntityType:(NSString *)entityName fromDictionaryArray:(NSArray *)dictionaryArray usingContextParameters:(BCCDataStoreControllerImportParameters *)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
+- (NSArray *)createObjectsOfEntityType:(NSString *)entityName fromDictionaryArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
 {
     return [self createObjectsOfEntityType:entityName fromDictionaryArray:dictionaryArray findExisting:importParameters.findExisting dictionaryIdentityProperty:importParameters.dictionaryIdentityPropertyName modelIdentityProperty:importParameters.modelIdentityPropertyName groupPropertyName:importParameters.groupPropertyName groupIdentifier:importParameters.groupIdentifier postCreateBlock:postCreateBlock];
 }
@@ -850,6 +850,10 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
             affectedObject = [self createAndInsertObjectWithEntityName:entityName identityProperty:modelIdentityPropertyName identityValue:identifier groupPropertyName:groupPropertyName groupIdentifier:groupIdentifier];
         } else {
             affectedObject = [self createAndInsertObjectWithEntityName:entityName];
+            
+            if (groupIdentifier && groupPropertyName) {
+                [affectedObject setValue:groupIdentifier forKey:groupPropertyName];
+            }
         }
         
         if (!affectedObject) {
