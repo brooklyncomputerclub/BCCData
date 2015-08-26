@@ -1198,24 +1198,26 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (NSFetchRequest *)fetchRequestForEntityName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors
 {
-    if (!entityName || propertyList.count < 1 || valueList.count < 1 || propertyList.count != valueList.count) {
+    if (!entityName) {
         return nil;
     }
     
-    NSMutableArray *argumentArray = [[NSMutableArray alloc] init];
-    NSMutableString *formatString = [[NSMutableString alloc] init];
-    
-    [propertyList enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-        [argumentArray addObject:obj];
-        [argumentArray addObject:valueList[idx]];
-        
-        [formatString BCC_appendPredicateCondition:@"%K == %@"];
-    }];
-    
     NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName sortDescriptors:sortDescriptors];
     
-    NSPredicate *predicate = [NSPredicate predicateWithFormat:formatString argumentArray:argumentArray];
-    fetchRequest.predicate = predicate;
+    if (propertyList.count > 0 && valueList.count > 0 && propertyList.count == valueList.count) {
+        NSMutableArray *argumentArray = [[NSMutableArray alloc] init];
+        NSMutableString *formatString = [[NSMutableString alloc] init];
+        
+        [propertyList enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+            [argumentArray addObject:obj];
+            [argumentArray addObject:valueList[idx]];
+            
+            [formatString BCC_appendPredicateCondition:@"%K == %@"];
+        }];
+        
+        NSPredicate *predicate = [NSPredicate predicateWithFormat:formatString argumentArray:argumentArray];
+        fetchRequest.predicate = predicate;
+    }
 
     return fetchRequest;
 }
