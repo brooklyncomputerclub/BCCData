@@ -10,6 +10,7 @@
 
 @class BCCTargetActionQueue;
 @class BCCDataStoreController;
+@class BCCDataStoreControllerIdentityParameters;
 @class BCCDataStoreControllerWorkParameters;
 @class BCCDataStoreControllerImportParameters;
 
@@ -83,47 +84,35 @@ typedef enum {
 - (void)performBlockOnThreadMOCAndWait:(BCCDataStoreControllerWorkBlock)block;
 
 // Worker Context Memory Cache
-- (void)setCacheObject:(NSManagedObject *)cacheObject forMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identifier:(NSString *)identifier groupIdentifier:(NSString *)groupIdentifier;
-- (void)removeCacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identifier:(NSString *)identifier groupIdentifier:(NSString *)groupIdentifier;
-- (NSManagedObject *)cacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identifier:(NSString *)identifier groupIdentifier:(NSString *)groupIdentifier;
+- (void)setCacheObject:(NSManagedObject *)cacheObject forMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier;
+- (NSManagedObject *)cacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier;
+- (void)removeCacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier;
 
 // Entity Creation/Updates
 - (NSManagedObject *)createAndInsertObjectWithEntityName:(NSString *)entityName;
-- (NSManagedObject *)createAndInsertObjectWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier;
+- (NSManagedObject *)createAndInsertObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier;
 
-- (NSManagedObject *)findOrCreateObjectWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier;
+// Entity Find Or Create
+- (NSManagedObject *)findOrCreateObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier;
 
 // Entity Mass Creation
-- (NSArray *)createObjectsOfEntityType:(NSString *)entityName fromDictionaryArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)workParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
-
-- (NSArray *)createObjectsOfEntityType:(NSString *)entityName fromDictionaryArray:(NSArray *)dictionaryArray findExisting:(BOOL)findExisting dictionaryIdentityProperty:(NSString *)dictionaryIdentityPropertyName modelIdentityProperty:(NSString *)modelIdentityPropertyName groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
+- (NSArray *)createObjectsFromDictionaryArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
 
 // Entity Deletion
 - (void)deleteObjects:(NSArray *)affectedObjects;
 - (void)deleteObjectsWithEntityName:(NSString *)entityName;
-- (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier;
-
-//- (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName valueList:(NSArray *)valueList;
+- (void)deleteObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier;
 
 // Query by Entity
 - (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors;
-- (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier;
-- (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet;
-
-// Fetching
-- (NSManagedObject *)performSingleResultFetchOfEntityWithName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList error:(NSError **)error;
-- (NSArray *)performFetchOfEntityWithName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error;
-
-// Fetching Using Templates
-- (NSArray *)performFetchRequestWithTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error;
-- (NSManagedObject *)performSingleResultFetchRequestWithTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary error:(NSError **)error;
 
 // Fetch Request Creation
 - (NSFetchRequest *)fetchRequestForEntityName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors;
-- (NSFetchRequest *)fetchRequestForEntityName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors;
-- (NSFetchRequest *)fetchRequestForTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary sortDescriptors:(NSArray *)sortDescriptors;
+- (NSFetchRequest *)fetchRequestForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier sortDescriptors:(NSArray *)sortDescriptors;
 
-// Fetch Request Execution
+// Fetching
+- (NSManagedObject *)performSingleResultFetchForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier error:(NSError **)error;
+
 - (NSManagedObject *)performSingleResultFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error;
 - (NSArray *)performFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error;
 
@@ -136,6 +125,40 @@ typedef enum {
 
 - (void)removeObserver:(id)observer;
 - (void)removeObserver:(id)observer forEntityName:(NSString *)entityName;
+
+
+// ---------------- DEPRECATED ----------------
+
+// Entity Creation/Updates
+- (NSManagedObject *)createAndInsertObjectWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier __attribute__((deprecated));
+
+- (NSManagedObject *)findOrCreateObjectWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier __attribute__((deprecated));
+
+// ---------------- TO DO ----------------
+
+// Entity Mass Creation
+- (NSArray *)createObjectsOfEntityType:(NSString *)entityName fromDictionaryArray:(NSArray *)dictionaryArray findExisting:(BOOL)findExisting dictionaryIdentityProperty:(NSString *)dictionaryIdentityPropertyName modelIdentityProperty:(NSString *)modelIdentityPropertyName groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
+
+// Entity Deletion
+- (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier;
+
+//- (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName valueList:(NSArray *)valueList;
+
+// Query by Entity
+- (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier;
+- (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet;
+
+// Fetching
+- (NSManagedObject *)performSingleResultFetchOfEntityWithName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList error:(NSError **)error;
+- (NSArray *)performFetchOfEntityWithName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error;
+
+// Fetching Using Templates
+- (NSArray *)performFetchRequestWithTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error;
+- (NSManagedObject *)performSingleResultFetchRequestWithTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary error:(NSError **)error;
+
+// Fetch Request Creation
+- (NSFetchRequest *)fetchRequestForEntityName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors;
+- (NSFetchRequest *)fetchRequestForTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary sortDescriptors:(NSArray *)sortDescriptors;
 
 @end
 
@@ -163,19 +186,32 @@ typedef enum {
 @end
 
 
+@interface BCCDataStoreControllerIdentityParameters : NSObject
+
+@property (strong, nonatomic) NSString *entityName;
+@property (strong, nonatomic) NSString *identityPropertyName;
+@property (strong, nonatomic) NSString *groupPropertyName;
+
+@property (nonatomic) BOOL isValidForQuery;
+
+// Class Methods
++ (instancetype)identityParametersWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName;
+
+// Initialization
+- (instancetype)initWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName;
+
+@end
+
+
 @interface BCCDataStoreControllerImportParameters : NSObject
 
 @property (nonatomic) BOOL findExisting;
 @property (nonatomic) BOOL deleteExisting;
 
-@property (copy) BCCDataStoreControllerWorkBlock postCreateBlock;
+@property (strong, nonatomic) NSString *dictionaryIdentityPropertyName;
 
-@property (strong, nonatomic) NSString *groupPropertyName;
 @property (strong, nonatomic) NSString *groupIdentifier;
 
-@property (strong, nonatomic) NSString *modelIdentityPropertyName;
-@property (strong, nonatomic) NSString *modelContextIdentifierPropertyName;
-
-@property (strong, nonatomic) NSString *dictionaryIdentityPropertyName;
+@property (copy) BCCDataStoreControllerWorkBlock postCreateBlock;
 
 @end
