@@ -83,6 +83,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 @end
 
+
 #pragma mark -
 
 @implementation BCCDataStoreController
@@ -932,41 +933,6 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     return object;
 }
 
-- (void)deleteObjects:(NSArray *)affectedObjects
-{
-    for (NSManagedObject *currentObject in affectedObjects) {
-        [self removeCacheObject:currentObject];
-        [[self currentMOC] deleteObject:currentObject];
-    }
-}
-
-- (void)deleteObjectsWithEntityName:(NSString *)entityName
-{
-    if (!entityName) {
-        return;
-    }
-    
-    // TO DO
-}
-
-- (void)deleteObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
-{
-    if (!identityParameters.isValidForQuery) {
-        return;
-    }
-    
-    NSManagedObject *affectedObject = [self performSingleResultFetchForIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier error:NULL];
-    if (!affectedObject) {
-        return;
-    }
-    
-    NSManagedObjectContext *moc = [self currentMOC];
-    
-    [self removeCacheObjectForMOC:moc entityName:identityParameters.entityName identityValue:identityValue groupIdentifier:groupIdentifier];
-    
-    [moc deleteObject:affectedObject];
-}
-
 - (NSArray *)createObjectsFromDictionaryArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
 {
     NSString *entityName = identityParameters.entityName;
@@ -1017,6 +983,54 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     }];
     
     return affectedObjects;
+}
+
+- (void)deleteObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
+{
+    if (!identityParameters.isValidForQuery) {
+        return;
+    }
+    
+    NSManagedObject *affectedObject = [self performSingleResultFetchForIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier error:NULL];
+    if (!affectedObject) {
+        return;
+    }
+    
+    NSManagedObjectContext *moc = [self currentMOC];
+    
+    [self removeCacheObjectForMOC:moc entityName:identityParameters.entityName identityValue:identityValue groupIdentifier:groupIdentifier];
+    
+    [moc deleteObject:affectedObject];
+}
+
+- (void)deleteObjectsWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters importParameters:(BCCDataStoreControllerImportParameters *)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
+{
+    NSString *entityName = identityParameters.entityName;
+    NSString *groupPropertyName = identityParameters.groupPropertyName;
+    NSString *groupIdentifier = importParameters.groupIdentifier;
+    
+    if (!identityParameters.isValidForQuery) {
+        return;
+    }
+
+    // TO DO
+}
+
+- (void)deleteObjects:(NSArray *)affectedObjects
+{
+    for (NSManagedObject *currentObject in affectedObjects) {
+        [self removeCacheObject:currentObject];
+        [[self currentMOC] deleteObject:currentObject];
+    }
+}
+
+- (void)deleteObjectsWithEntityName:(NSString *)entityName
+{
+    if (!entityName) {
+        return;
+    }
+    
+    // TO DO
 }
 
 #pragma mark - Queries
@@ -1379,79 +1393,26 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (NSArray *)createObjectsOfEntityType:(NSString *)entityName fromDictionaryArray:(NSArray *)dictionaryArray findExisting:(BOOL)findExisting dictionaryIdentityProperty:(NSString *)dictionaryIdentityPropertyName modelIdentityProperty:(NSString *)modelIdentityPropertyName groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
 {
-    if (!entityName || !dictionaryArray || dictionaryArray.count < 1) {
-        return nil;
-    }
-
-    NSManagedObjectContext *managedObjectContext = [self currentMOC];
+    BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:entityName identityPropertyName:modelIdentityPropertyName];
+    identityParameters.groupPropertyName = groupPropertyName;
     
-    NSMutableArray *affectedObjects = [[NSMutableArray alloc] init];
+    BCCDataStoreControllerImportParameters *importParameters = [[BCCDataStoreControllerImportParameters alloc] init];
+    importParameters.groupIdentifier = groupIdentifier;
+    importParameters.dictionaryIdentityPropertyName = dictionaryIdentityPropertyName;
+    importParameters.findExisting = findExisting;
     
-    [dictionaryArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-        NSDictionary *currentDictionary = (NSDictionary *)obj;
-        
-        NSManagedObject *affectedObject = nil;
-        id identifier = [currentDictionary valueForKeyPath:dictionaryIdentityPropertyName];
-        if (!identifier && findExisting) {
-            return;
-        }
-        
-        if (findExisting) {
-            affectedObject = [self findOrCreateObjectWithEntityName:entityName identityProperty:modelIdentityPropertyName identityValue:identifier groupPropertyName:groupPropertyName groupIdentifier:groupIdentifier];
-        } else if (identifier) {
-            affectedObject = [self createAndInsertObjectWithEntityName:entityName identityProperty:modelIdentityPropertyName identityValue:identifier groupPropertyName:groupPropertyName groupIdentifier:groupIdentifier];
-        } else {
-            affectedObject = [self createAndInsertObjectWithEntityName:entityName];
-            
-            if (groupIdentifier && groupPropertyName) {
-                [affectedObject setValue:groupIdentifier forKey:groupPropertyName];
-            }
-        }
-        
-        if (!affectedObject) {
-            return;
-        }
-        
-        if (postCreateBlock) {
-            postCreateBlock(affectedObject, currentDictionary, idx, managedObjectContext);
-        }
-        
-        [affectedObjects addObject:affectedObject];
-
-    }];
-    
-    return affectedObjects;
+    return [self createObjectsFromDictionaryArray:dictionaryArray usingImportParameters:importParameters identityParameters:identityParameters postCreateBlock:postCreateBlock];
 }
-
 
 - (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier
 {
-    if (!entityName || (identityPropertyName && !identityValue)) {
-        return;
-    }
+    BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:entityName identityPropertyName:identityPropertyName];
+    identityParameters.groupPropertyName = groupPropertyName;
     
-    NSArray *propertyList = nil;
-    NSArray *valueList = nil;
-    if (groupPropertyName && groupIdentifier) {
-        propertyList = @[groupPropertyName];
-        valueList = @[groupIdentifier];
-    }
+    BCCDataStoreControllerImportParameters *importParameters = [[BCCDataStoreControllerImportParameters alloc] init];
+    importParameters.groupIdentifier = groupIdentifier;
     
-    NSArray *affectedObjects = [self performFetchOfEntityWithName:entityName usingPropertyList:propertyList valueList:valueList sortDescriptors:nil error:NULL];
-    if (affectedObjects.count < 1) {
-        return;
-    }
-
-    id normalizedIdentityValue = [self normalizedIdentityValueForValue:identityValue];
-    
-    NSManagedObjectContext *managedObjectContext = [self currentMOC];
-    
-    for (NSManagedObject *currentObject in affectedObjects) {
-        // TO DO: Fix cache removal everywhere
-        //[self removeCacheObjectForMOC:managedObjectContext entityName:entityName identifier:normalizedIdentityValue groupIdentifier:groupIdentifier];
-
-        [managedObjectContext deleteObject:currentObject];
-    }
+    [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters postCreateBlock:NULL];
 }
 
 // TO DO: Remove deleted objects from memory cache here
