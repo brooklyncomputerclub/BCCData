@@ -1047,8 +1047,38 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (NSArray *)objectsForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifier sortDescriptors:(NSArray *)sortDescriptors
 {
+    return [self objectsForIdentityParameters:identityParameters groupIdentifier:groupIdentifier filteredByProperty:nil valueSet:nil sortDescriptors:sortDescriptors];
+}
+
+- (NSArray *)objectsForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet sortDescriptors:(NSArray *)sortDescriptors
+{
     NSFetchRequest *fetchRequest = [self fetchRequestForIdentityParameters:identityParameters identityValue:nil groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
-    return [self performFetchRequest:fetchRequest error:NULL];
+
+    NSArray *fullObjectList = [self performFetchRequest:fetchRequest error:NULL];
+    
+    if (!propertyName || valueSet.count < 1) {
+        return fullObjectList;
+    }
+    
+    NSSet *normalizedValueSet = [self normalizedIdentityValueSetForSet:valueSet];
+    if (!normalizedValueSet) {
+        return nil;
+    }
+    
+    NSMutableArray *affectedObjects = [[NSMutableArray alloc] init];
+    
+    [fullObjectList enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+        NSManagedObject *currentObject = (NSManagedObject *)obj;
+        id propertyValue = [currentObject valueForKey:propertyName];
+        
+        if (![normalizedValueSet containsObject:propertyValue]) {
+            return;
+        }
+        
+        [affectedObjects addObject:currentObject];
+    }];
+    
+    return affectedObjects;
 }
 
 #pragma mark - Fetching
@@ -1111,6 +1141,12 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     return [self performFetchRequest:fetchRequest error:error];
 }
 
+- (NSArray *)performFetchOfEntityWithName:(NSString *)entityName byProperty:(NSString *)propertyName valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error
+{
+    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName usingPropertyList:@[propertyName] valueList:valueList sortDescriptors:sortDescriptors];
+    return [self performFetchRequest:fetchRequest error:error];
+}
+
 - (NSArray *)performFetchRequestWithTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error
 {
     NSFetchRequest *fetchRequest = [self fetchRequestForTemplateName:templateName substitutionDictionary:substitutionDictionary sortDescriptors:sortDescriptors];
@@ -1141,7 +1177,12 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (NSFetchRequest *)fetchRequestForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier sortDescriptors:(NSArray *)sortDescriptors
 {
-    return [self fetchRequestForIdentityParameters:identityParameters identityValueList:@[identityValue] groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
+    NSArray *identityValues = nil;
+    if (identityValue) {
+        identityValues = @[identityValue];
+    }
+    
+    return [self fetchRequestForIdentityParameters:identityParameters identityValueList:identityValues groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
 }
 
 - (NSFetchRequest *)fetchRequestForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValueList:(NSArray *)identityValues groupIdentifier:(NSString *)groupIdentifier sortDescriptors:(NSArray *)sortDescriptors
@@ -1154,13 +1195,17 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     
     NSString *identityPropertyName = identityParameters.identityPropertyName;
 
-    NSMutableArray *propertyList = [[NSMutableArray alloc] initWithObjects:identityPropertyName, nil];
+    NSMutableArray *propertyList = [[NSMutableArray alloc] init];
     NSMutableArray *valueList = [[NSMutableArray alloc] init];
     
-    if (identityValues.count == 1) {
-        [valueList addObject:identityValues[0]];
-    } else if (identityValues.count > 0) {
-        [valueList addObject:identityValues];
+    if (identityPropertyName && identityValues.count > 0) {
+        [propertyList addObject:identityPropertyName];
+        
+        if (identityValues.count == 1) {
+            [valueList addObject:identityValues[0]];
+        } else if (identityValues.count > 0) {
+            [valueList addObject:identityValues];
+        }
     }
 
     NSString *groupPropertyName = identityParameters.groupPropertyName;
@@ -1512,8 +1557,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:entityName identityPropertyName:nil];
     identityParameters.groupPropertyName = groupPropertyName;
     
-    NSFetchRequest *fetchRequest = [self fetchRequestForIdentityParameters:identityParameters identityValue:nil groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
-    return [self performFetchRequest:fetchRequest error:NULL];
+    return [self objectsForIdentityParameters:identityParameters groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
 }
 
 - (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet
@@ -1521,44 +1565,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:entityName identityPropertyName:nil];
     identityParameters.groupPropertyName = groupPropertyName;
     
-    NSFetchRequest *fetchRequest = [self fetchRequestForIdentityParameters:identityParameters identityValue:nil groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
-    if (!fetchRequest) {
-        return nil;
-    }
-    
-    NSArray *fullObjectList = [self performFetchRequest:fetchRequest error:NULL];
-    
-    if (!propertyName || valueSet.count < 1) {
-        return fullObjectList;
-    }
-    
-    NSSet *normalizedValueSet = [self normalizedIdentityValueSetForSet:valueSet];
-    if (!normalizedValueSet) {
-        return nil;
-    }
-    
-    NSMutableArray *affectedObjects = [[NSMutableArray alloc] init];
-    
-    [fullObjectList enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-        NSManagedObject *currentObject = (NSManagedObject *)obj;
-        id propertyValue = [currentObject valueForKey:propertyName];
-        
-        if (![normalizedValueSet containsObject:propertyValue]) {
-            return;
-        }
-        
-        [affectedObjects addObject:currentObject];
-    }];
-    
-    return affectedObjects;
-}
-
-#pragma mark - Fetching
-
-- (NSArray *)performFetchOfEntityWithName:(NSString *)entityName byProperty:(NSString *)propertyName valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error
-{
-    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName usingPropertyList:@[propertyName] valueList:valueList sortDescriptors:sortDescriptors];
-    return [self performFetchRequest:fetchRequest error:error];
+    return [self objectsForIdentityParameters:identityParameters groupIdentifier:groupIdentifier filteredByProperty:propertyName valueSet:valueSet sortDescriptors:sortDescriptors];
 }
 
 @end
@@ -1572,14 +1579,23 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 + (instancetype)identityParametersWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName
 {
-    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName identityPropertyName:identityPropertyName];
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
+    identityParameters.identityPropertyName = identityPropertyName;
+    
+    return identityParameters;
+}
+
++ (instancetype)identityParametersWithEntityName:(NSString *)entityName groupPropertyName:(NSString *)groupPropertyName
+{
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
+    identityParameters.groupPropertyName = groupPropertyName;
     
     return identityParameters;
 }
 
 #pragma mark - Initialization
 
-- (instancetype)initWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName
+- (instancetype)initWithEntityName:(NSString *)entityName
 {
     self = [super init];
     if (!self) {
@@ -1587,7 +1603,6 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     }
     
     _entityName = entityName;
-    _identityPropertyName = identityPropertyName;
     
     return self;
 }

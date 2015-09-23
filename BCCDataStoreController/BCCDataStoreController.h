@@ -107,6 +107,9 @@ typedef enum {
 // Query by Entity
 - (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors;
 
+- (NSArray *)objectsForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifier sortDescriptors:(NSArray *)sortDescriptors;
+- (NSArray *)objectsForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet sortDescriptors:(NSArray *)sortDescriptors;
+
 // Fetch Request Creation
 - (NSFetchRequest *)fetchRequestForEntityName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors;
 
@@ -195,9 +198,10 @@ typedef enum {
 
 // Class Methods
 + (instancetype)identityParametersWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName;
++ (instancetype)identityParametersWithEntityName:(NSString *)entityName groupPropertyName:(NSString *)groupPropertyName;
 
 // Initialization
-- (instancetype)initWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName;
+- (instancetype)initWithEntityName:(NSString *)entityName;
 
 @end
 
