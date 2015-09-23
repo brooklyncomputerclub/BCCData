@@ -1003,7 +1003,20 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     [moc deleteObject:affectedObject];
 }
 
-- (void)deleteObjectsWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters importParameters:(BCCDataStoreControllerImportParameters *)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
+- (void)deleteObjectsWithEntityName:(NSString *)entityName
+{
+    if (!entityName) {
+        return;
+    }
+    
+    // TO DO
+    
+    BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:entityName identityPropertyName:nil];
+    
+    [self deleteObjectsWithIdentityParameters:identityParameters importParameters:nil];
+}
+
+- (void)deleteObjectsWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters importParameters:(BCCDataStoreControllerImportParameters *)importParameters
 {
     NSString *entityName = identityParameters.entityName;
     NSString *groupPropertyName = identityParameters.groupPropertyName;
@@ -1024,60 +1037,140 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     }
 }
 
-- (void)deleteObjectsWithEntityName:(NSString *)entityName
-{
-    if (!entityName) {
-        return;
-    }
-    
-    // TO DO
-}
-
-#pragma mark - Queries
+#pragma mark - Query by Entity
 
 - (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors
 {
-    return [self objectsForEntityWithName:entityName sortDescriptors:sortDescriptors groupPropertyName:nil groupIdentifier:nil filteredByProperty:nil valueSet:nil];
+    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName sortDescriptors:sortDescriptors];
+    return [self performFetchRequest:fetchRequest error:NULL];
+}
+
+- (NSArray *)objectsForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifier sortDescriptors:(NSArray *)sortDescriptors
+{
+    NSFetchRequest *fetchRequest = [self fetchRequestForIdentityParameters:identityParameters identityValue:nil groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
+    return [self performFetchRequest:fetchRequest error:NULL];
+}
+
+#pragma mark - Fetching
+
+- (NSManagedObject *)performSingleResultFetchForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier error:(NSError **)error
+{
+    NSFetchRequest *fetchRequest = [self fetchRequestForIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier sortDescriptors:nil];
+    return [self performSingleResultFetchRequest:fetchRequest error:error];
+}
+
+- (NSManagedObject *)performSingleResultFetchOfEntityWithName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList error:(NSError **)error
+{
+    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName usingPropertyList:propertyList valueList:valueList sortDescriptors:nil];
+    if (!fetchRequest) {
+        return nil;
+    }
+    
+    return [self performSingleResultFetchRequest:fetchRequest error:error];
+}
+
+- (NSManagedObject *)performSingleResultFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error
+{
+    if (!fetchRequest) {
+        return nil;
+    }
+    
+    fetchRequest.fetchLimit = 1;
+    fetchRequest.fetchBatchSize = 1;
+    
+    NSArray *results = [self performFetchRequest:fetchRequest error:error];
+    if (error) {
+        NSLog(@"Error for single result fetch request %@: %@", fetchRequest, *error);
+    }
+    
+    NSManagedObject *result = nil;
+    if (results.count > 0) {
+        result = [results objectAtIndex:0];
+    }
+    
+    return result;
+}
+
+- (NSManagedObject *)performSingleResultFetchRequestWithTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary error:(NSError **)error
+{
+    NSFetchRequest *fetchRequest = [self fetchRequestForTemplateName:templateName substitutionDictionary:substitutionDictionary sortDescriptors:nil];
+    if (!fetchRequest) {
+        return nil;
+    }
+    
+    return [self performSingleResultFetchRequest:fetchRequest error:error];
+}
+
+- (NSArray *)performFetchOfEntityWithName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error
+{
+    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName usingPropertyList:propertyList valueList:valueList sortDescriptors:sortDescriptors];
+    if (!fetchRequest) {
+        return nil;
+    }
+    
+    return [self performFetchRequest:fetchRequest error:error];
+}
+
+- (NSArray *)performFetchRequestWithTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error
+{
+    NSFetchRequest *fetchRequest = [self fetchRequestForTemplateName:templateName substitutionDictionary:substitutionDictionary sortDescriptors:sortDescriptors];
+    if (!fetchRequest) {
+        return nil;
+    }
+    
+    return [self performFetchRequest:fetchRequest error:error];
+}
+
+- (NSArray *)performFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error
+{
+    if (!fetchRequest) {
+        return nil;
+    }
+    
+    error = NULL;
+    
+    NSArray *results = [[self currentMOC] executeFetchRequest:fetchRequest error:error];
+    if (error) {
+        NSLog(@"Error for fetch request %@: %@", fetchRequest, *error);
+    }
+    
+    return results;
 }
 
 #pragma mark - Fetch Request Creation
 
 - (NSFetchRequest *)fetchRequestForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier sortDescriptors:(NSArray *)sortDescriptors
 {
+    return [self fetchRequestForIdentityParameters:identityParameters identityValueList:@[identityValue] groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
+}
+
+- (NSFetchRequest *)fetchRequestForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValueList:(NSArray *)identityValues groupIdentifier:(NSString *)groupIdentifier sortDescriptors:(NSArray *)sortDescriptors
+{
     NSString *entityName = identityParameters.entityName;
-    NSString *identityPropertyName = identityParameters.identityPropertyName;
-    NSString *groupPropertyName = identityParameters.groupPropertyName;
     
     if (!entityName) {
         return nil;
     }
     
-    NSFetchRequest *fetchRequest = [[NSFetchRequest alloc] initWithEntityName:entityName];
-    fetchRequest.sortDescriptors = sortDescriptors;
+    NSString *identityPropertyName = identityParameters.identityPropertyName;
+
+    NSMutableArray *propertyList = [[NSMutableArray alloc] initWithObjects:identityPropertyName, nil];
+    NSMutableArray *valueList = [[NSMutableArray alloc] init];
     
-    NSMutableArray *argumentArray = [[NSMutableArray alloc] init];
-    NSMutableString *formatString = [[NSMutableString alloc] init];
-    
-    if (identityParameters.isValidForQuery) {
-        [argumentArray addObject:identityPropertyName];
-        [argumentArray addObject:identityValue];
-    
-        [formatString BCC_appendPredicateCondition:@"%K == %@"];
+    if (identityValues.count == 1) {
+        [valueList addObject:identityValues[0]];
+    } else if (identityValues.count > 0) {
+        [valueList addObject:identityValues];
     }
+
+    NSString *groupPropertyName = identityParameters.groupPropertyName;
     
     if (groupPropertyName && groupIdentifier) {
-        [argumentArray addObject:groupPropertyName];
-        [argumentArray addObject:groupIdentifier];
-        
-        [formatString BCC_appendPredicateConditionWithOperator:@"AND" string:@"%K == %@"];
+        [propertyList addObject:groupPropertyName];
+        [valueList addObject:groupIdentifier];
     }
     
-    if (argumentArray.count > 0) {
-        NSPredicate *predicate = [NSPredicate predicateWithFormat:formatString argumentArray:argumentArray];
-        fetchRequest.predicate = predicate;
-    }
-    
-    return fetchRequest;
+    return [self fetchRequestForEntityName:entityName usingPropertyList:propertyList valueList:valueList sortDescriptors:sortDescriptors];
 }
 
 - (NSFetchRequest *)fetchRequestForEntityName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors
@@ -1108,7 +1201,15 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
             [argumentArray addObject:obj];
             [argumentArray addObject:valueList[idx]];
             
-            [formatString BCC_appendPredicateCondition:@"%K == %@"];
+            NSString *predicateString = nil;
+            
+            if ([obj isKindOfClass:[NSArray class]]) {
+                predicateString = @"(%K IN %@)";
+            } else {
+                predicateString = @"%K == %@";
+            }
+            
+            [formatString BCC_appendPredicateCondition:predicateString];
         }];
         
         NSPredicate *predicate = [NSPredicate predicateWithFormat:formatString argumentArray:argumentArray];
@@ -1118,50 +1219,24 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     return fetchRequest;
 }
 
-#pragma mark - Lower Level Query Methods
-
-- (NSManagedObject *)performSingleResultFetchForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier error:(NSError **)error
+- (NSFetchRequest *)fetchRequestForTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary sortDescriptors:(NSArray *)sortDescriptors
 {
-    NSFetchRequest *fetchRequest = [self fetchRequestForIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier sortDescriptors:nil];
-    return [self performSingleResultFetchRequest:fetchRequest error:error];
-}
-
-- (NSManagedObject *)performSingleResultFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error
-{
-    if (!fetchRequest) {
+    if (!templateName) {
         return nil;
     }
     
-    fetchRequest.fetchLimit = 1;
-    fetchRequest.fetchBatchSize = 1;
-    
-    NSArray *results = [self performFetchRequest:fetchRequest error:error];
-    if (error) {
-        NSLog(@"Error for single result fetch request %@: %@", fetchRequest, *error);
+    NSFetchRequest *fetchRequest = nil;
+    if (substitutionDictionary) {
+        fetchRequest = [[self.managedObjectModel fetchRequestFromTemplateWithName:templateName substitutionVariables:substitutionDictionary] copy];
+    } else {
+        fetchRequest = [[self.managedObjectModel fetchRequestTemplateForName:templateName] copy];
     }
     
-    NSManagedObject *result = nil;
-    if (results.count > 0) {
-        result = [results objectAtIndex:0];
+    if (sortDescriptors) {
+        fetchRequest.sortDescriptors = sortDescriptors;
     }
     
-    return result;
-}
-
-- (NSArray *)performFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error
-{
-    if (!fetchRequest) {
-        return nil;
-    }
-    
-    error = NULL;
-    
-    NSArray *results = [[self currentMOC] executeFetchRequest:fetchRequest error:error];
-    if (error) {
-        NSLog(@"Error for fetch request %@: %@", fetchRequest, *error);
-    }
-    
-    return results;
+    return fetchRequest;
 }
 
 #pragma mark - Change Observation
@@ -1365,12 +1440,6 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 
 
-
-
-
-
-
-
 #pragma mark - ----- Deprecated -----
 
 #pragma mark - Entity CRUD
@@ -1412,53 +1481,47 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     BCCDataStoreControllerImportParameters *importParameters = [[BCCDataStoreControllerImportParameters alloc] init];
     importParameters.groupIdentifier = groupIdentifier;
     
-    [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters postCreateBlock:NULL];
+    [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters];
 }
 
 // TO DO: Remove deleted objects from memory cache here
 
 /*- (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName valueList:(NSArray *)valueList
-{
-    if (!entityName || identityPropertyName || valueList.count < 1) {
-        return;
-    }
-    
-    NSManagedObjectContext *context = [self currentContext];
-    
-    NSArray *normalizedValueList = [self normalizedIdentityValueListForList:valueList];
-    NSArray *objectList = [self performFetchOfEntityWithName:entityName byProperty:identityPropertyName valueList:normalizedValueList sortDescriptors:nil error:NULL];
-    if (objectList.count < 1) {
-        return;
-    }
-    
-    for (NSManagedObject *currentObject in objectList) {
-        [context deleteObject:currentObject];
-    }
-}*/
+ {
+ if (!entityName || identityPropertyName || valueList.count < 1) {
+ return;
+ }
+ 
+ NSManagedObjectContext *context = [self currentContext];
+ 
+ NSArray *normalizedValueList = [self normalizedIdentityValueListForList:valueList];
+ NSArray *objectList = [self performFetchOfEntityWithName:entityName byProperty:identityPropertyName valueList:normalizedValueList sortDescriptors:nil error:NULL];
+ if (objectList.count < 1) {
+ return;
+ }
+ 
+ for (NSManagedObject *currentObject in objectList) {
+ [context deleteObject:currentObject];
+ }
+ }*/
 
-
-#pragma mark - Higher Level Query Methods
+#pragma mark - Query by Entity
 
 - (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier
 {
-    return [self objectsForEntityWithName:entityName sortDescriptors:sortDescriptors groupPropertyName:groupPropertyName groupIdentifier:groupIdentifier filteredByProperty:nil valueSet:nil];
+    BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:entityName identityPropertyName:nil];
+    identityParameters.groupPropertyName = groupPropertyName;
+    
+    NSFetchRequest *fetchRequest = [self fetchRequestForIdentityParameters:identityParameters identityValue:nil groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
+    return [self performFetchRequest:fetchRequest error:NULL];
 }
 
 - (NSArray *)objectsForEntityWithName:(NSString *)entityName sortDescriptors:(NSArray *)sortDescriptors groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet
 {
-    if (!entityName) {
-        return nil;
-    }
+    BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:entityName identityPropertyName:nil];
+    identityParameters.groupPropertyName = groupPropertyName;
     
-    NSArray *propertyList = nil;
-    NSArray *valueList = nil;
-    
-    if (groupPropertyName && groupIdentifier) {
-        propertyList = @[groupPropertyName];
-        valueList = @[groupIdentifier];
-    }
-    
-    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName usingPropertyList:propertyList valueList:valueList sortDescriptors:sortDescriptors];
+    NSFetchRequest *fetchRequest = [self fetchRequestForIdentityParameters:identityParameters identityValue:nil groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
     if (!fetchRequest) {
         return nil;
     }
@@ -1490,100 +1553,16 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     return affectedObjects;
 }
 
-#pragma mark - Lower Level Query Methods
-
-- (NSManagedObject *)performSingleResultFetchOfEntityWithName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList error:(NSError **)error
-{
-
-    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName usingPropertyList:propertyList valueList:valueList sortDescriptors:nil];
-    if (!fetchRequest) {
-        return nil;
-    }
-    
-    return [self performSingleResultFetchRequest:fetchRequest error:error];
-}
-
-- (NSArray *)performFetchOfEntityWithName:(NSString *)entityName usingPropertyList:(NSArray *)propertyList valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error
-{
-    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName usingPropertyList:propertyList valueList:valueList sortDescriptors:sortDescriptors];
-    if (!fetchRequest) {
-        return nil;
-    }
-    
-    return [self performFetchRequest:fetchRequest error:error];
-}
+#pragma mark - Fetching
 
 - (NSArray *)performFetchOfEntityWithName:(NSString *)entityName byProperty:(NSString *)propertyName valueList:(NSArray *)valueList sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error
 {
-    if (!entityName || !propertyName || valueList.count < 1) {
-        return nil;
-    }
-    
-    NSArray *normalizedValueList = [self normalizedIdentityValueListForList:valueList];
-    if (!normalizedValueList) {
-        return nil;
-    }
-    
-    NSMutableString *predicateString = [[NSMutableString alloc] init];
-    NSMutableArray *argumentArray = [[NSMutableArray alloc] init];
-    
-    [predicateString appendString:@"(%K IN %@)"];
-    
-    [argumentArray addObject:propertyName];
-    [argumentArray addObject:normalizedValueList];
-    
-    NSPredicate *listPredicate = [NSPredicate predicateWithFormat:predicateString argumentArray:argumentArray];
-    
-    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName sortDescriptors:sortDescriptors];
-
-    fetchRequest.predicate = listPredicate;
-    
+    NSFetchRequest *fetchRequest = [self fetchRequestForEntityName:entityName usingPropertyList:@[propertyName] valueList:valueList sortDescriptors:sortDescriptors];
     return [self performFetchRequest:fetchRequest error:error];
-}
-
-- (NSManagedObject *)performSingleResultFetchRequestWithTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary error:(NSError **)error
-{
-    NSFetchRequest *fetchRequest = [self fetchRequestForTemplateName:templateName substitutionDictionary:substitutionDictionary sortDescriptors:nil];
-    if (!fetchRequest) {
-        return nil;
-    }
-    
-    return [self performSingleResultFetchRequest:fetchRequest error:error];
-}
-
-- (NSArray *)performFetchRequestWithTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary sortDescriptors:(NSArray *)sortDescriptors error:(NSError **)error
-{
-    NSFetchRequest *fetchRequest = [self fetchRequestForTemplateName:templateName substitutionDictionary:substitutionDictionary sortDescriptors:sortDescriptors];
-    if (!fetchRequest) {
-        return nil;
-    }
-    
-    return [self performFetchRequest:fetchRequest error:error];
-}
-
-#pragma mark - Fetch Request Creation
-
-- (NSFetchRequest *)fetchRequestForTemplateName:(NSString *)templateName substitutionDictionary:(NSDictionary *)substitutionDictionary sortDescriptors:(NSArray *)sortDescriptors
-{
-    if (!templateName) {
-        return nil;
-    }
-    
-    NSFetchRequest *fetchRequest = nil;
-    if (substitutionDictionary) {
-        fetchRequest = [[self.managedObjectModel fetchRequestFromTemplateWithName:templateName substitutionVariables:substitutionDictionary] copy];
-    } else {
-        fetchRequest = [[self.managedObjectModel fetchRequestTemplateForName:templateName] copy];
-    }
-    
-    if (sortDescriptors) {
-        fetchRequest.sortDescriptors = sortDescriptors;
-    }
-    
-    return fetchRequest;
 }
 
 @end
+
 
 #pragma mark -
 
