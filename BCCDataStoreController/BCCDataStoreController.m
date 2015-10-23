@@ -727,26 +727,19 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     }
     
     NSString *entityName = identityParameters.entityName;
-    
     NSString *identityPropertyName = identityParameters.identityPropertyName;
     NSString *groupPropertyName = identityParameters.groupPropertyName;
     
     id identityValue = [cacheObject valueForKey:identityPropertyName];
+    if (!identityValue) {
+        return;
+    }
     
     NSString *groupIdentifier = nil;
     if (groupPropertyName) {
         groupIdentifier = [cacheObject valueForKey:groupPropertyName];
     }
 
-    [self setCacheObject:cacheObject forMOC:managedObjectContext entityName:entityName identityValue:identityValue groupIdentifier:groupIdentifier];
-}
-
-- (void)setCacheObject:(NSManagedObject *)cacheObject forMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
-{
-    if (!managedObjectContext || !cacheObject || !entityName || !identityValue) {
-        return;
-    }
-    
     NSMutableDictionary *objectCache = [self objectCacheForMOC:managedObjectContext];
     if (!objectCache) {
         return;
@@ -766,8 +759,10 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     [dictionaryForEntity setObject:cacheObject forKey:cacheKey];
 }
 
-- (NSManagedObject *)cacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
+- (NSManagedObject *)cacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
 {
+    NSString *entityName = identityParameters.entityName;
+    
     if (!managedObjectContext || !entityName || !identityValue) {
         return nil;
     }
@@ -789,11 +784,12 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     
     NSManagedObject *object = [dictionaryForEntity objectForKey:cacheKey];
     return object;
-
 }
 
-- (void)removeCacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
+- (void)removeCacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
 {
+    NSString *entityName = identityParameters.entityName;
+    
     if (!managedObjectContext || !entityName || !identityValue) {
         return;
     }
@@ -907,7 +903,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     NSManagedObject *object = nil;
     NSManagedObjectContext *moc = [self currentMOC];
     
-    object = [self cacheObjectForMOC:moc entityName:identityParameters.entityName identityValue:identityValue groupIdentifier:groupIdentifier];
+    object = [self cacheObjectForMOC:moc identityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
     if (object) {
         return object;
     }
@@ -998,7 +994,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     
     NSManagedObjectContext *moc = [self currentMOC];
     
-    [self removeCacheObjectForMOC:moc entityName:identityParameters.entityName identityValue:identityValue groupIdentifier:groupIdentifier];
+    [self removeCacheObjectForMOC:moc identityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
     
     [moc deleteObject:affectedObject];
 }
@@ -1020,7 +1016,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
      for (NSManagedObject *currentObject in objectList) {
          [context deleteObject:currentObject];
      }
- }
+}
 
 - (void)deleteObjectsWithEntityName:(NSString *)entityName
 {
@@ -1499,6 +1495,38 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 
 #pragma mark - ----- Deprecated -----
+
+#pragma mark - Worker Queue Object Cache
+
+- (void)setCacheObject:(NSManagedObject *)cacheObject forMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
+{
+    if (!managedObjectContext || !cacheObject || !entityName || !identityValue) {
+        return;
+    }
+    
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
+    [self setCacheObject:cacheObject forMOC:managedObjectContext identityParameters:identityParameters];
+}
+
+- (NSManagedObject *)cacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
+{
+    if (!managedObjectContext || !entityName || !identityValue) {
+        return nil;
+    }
+    
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
+    return [self cacheObjectForMOC:managedObjectContext identityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+}
+
+- (void)removeCacheObjectForMOC:(NSManagedObjectContext *)managedObjectContext entityName:(NSString *)entityName identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
+{
+    if (!managedObjectContext || !entityName || !identityValue) {
+        return;
+    }
+    
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
+    [self removeCacheObjectForMOC:managedObjectContext identityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+}
 
 #pragma mark - Entity CRUD
 
