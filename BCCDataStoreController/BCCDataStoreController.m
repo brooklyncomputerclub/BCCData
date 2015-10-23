@@ -1003,30 +1003,43 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     [moc deleteObject:affectedObject];
 }
 
+- (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName valueList:(NSArray *)valueList
+ {
+     if (!entityName || identityPropertyName || valueList.count < 1) {
+         return;
+     }
+     
+     NSManagedObjectContext *context = [self currentMOC];
+     
+     NSArray *normalizedValueList = [self normalizedIdentityValueListForList:valueList];
+     NSArray *objectList = [self performFetchOfEntityWithName:entityName byProperty:identityPropertyName valueList:normalizedValueList sortDescriptors:nil error:NULL];
+     if (objectList.count < 1) {
+         return;
+     }
+     
+     for (NSManagedObject *currentObject in objectList) {
+         [context deleteObject:currentObject];
+     }
+ }
+
 - (void)deleteObjectsWithEntityName:(NSString *)entityName
 {
     if (!entityName) {
         return;
     }
     
-    // TO DO
-    
-    BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:entityName identityPropertyName:nil];
-    
-    [self deleteObjectsWithIdentityParameters:identityParameters importParameters:nil];
+    NSArray *objectsToDelete = [self objectsForEntityWithName:entityName sortDescriptors:nil];
+    [self deleteObjects:objectsToDelete];
 }
 
 - (void)deleteObjectsWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters importParameters:(BCCDataStoreControllerImportParameters *)importParameters
 {
-    NSString *entityName = identityParameters.entityName;
-    NSString *groupPropertyName = identityParameters.groupPropertyName;
-    NSString *groupIdentifier = importParameters.groupIdentifier;
-    
     if (!identityParameters.isValidForQuery) {
         return;
     }
 
-    // TO DO
+    NSArray *objectsToDelete = [self objectsForIdentityParameters:identityParameters groupIdentifier:nil sortDescriptors:nil];
+    [self deleteObjects:objectsToDelete];
 }
 
 - (void)deleteObjects:(NSArray *)affectedObjects
@@ -1528,27 +1541,6 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     
     [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters];
 }
-
-// TO DO: Remove deleted objects from memory cache here
-
-/*- (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName valueList:(NSArray *)valueList
- {
- if (!entityName || identityPropertyName || valueList.count < 1) {
- return;
- }
- 
- NSManagedObjectContext *context = [self currentContext];
- 
- NSArray *normalizedValueList = [self normalizedIdentityValueListForList:valueList];
- NSArray *objectList = [self performFetchOfEntityWithName:entityName byProperty:identityPropertyName valueList:normalizedValueList sortDescriptors:nil error:NULL];
- if (objectList.count < 1) {
- return;
- }
- 
- for (NSManagedObject *currentObject in objectList) {
- [context deleteObject:currentObject];
- }
- }*/
 
 #pragma mark - Query by Entity
 
