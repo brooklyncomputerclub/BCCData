@@ -23,7 +23,7 @@ extern NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification;
 
 typedef void (^BCCDataStoreControllerWorkBlock)(BCCDataStoreController *dataStoreController, NSManagedObjectContext *managedObjectContext, BCCDataStoreControllerWorkParameters *workParameters);
 
-typedef void (^BCCDataStoreControllerPostCreateBlock)(NSManagedObject *createdObject, NSDictionary *dictionary, NSUInteger idx, NSManagedObjectContext *managedObjectContext);
+typedef void (^BCCDataStoreControllerPostCreateBlock)(NSManagedObject *createdObject, id sourceObject, NSUInteger idx, NSManagedObjectContext *managedObjectContext);
 
 typedef enum {
     BCCDataStoreControllerWorkExecutionStyleMainMOCAndWait,
