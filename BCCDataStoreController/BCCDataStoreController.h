@@ -198,8 +198,6 @@ typedef enum {
 @property (strong, nonatomic) NSString *identityPropertyName;
 @property (strong, nonatomic) NSString *groupPropertyName;
 
-@property (nonatomic) BOOL isValidForQuery;
-
 // Class Methods
 + (instancetype)identityParametersWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName;
 + (instancetype)identityParametersWithEntityName:(NSString *)entityName groupPropertyName:(NSString *)groupPropertyName;

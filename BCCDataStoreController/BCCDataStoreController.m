@@ -722,13 +722,13 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (void)setCacheObject:(NSManagedObject *)cacheObject forMOC:(NSManagedObjectContext *)managedObjectContext identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters
 {
-    if (!managedObjectContext || !cacheObject || !identityParameters.isValidForQuery) {
-        return;
-    }
-    
     NSString *entityName = identityParameters.entityName;
     NSString *identityPropertyName = identityParameters.identityPropertyName;
     NSString *groupPropertyName = identityParameters.groupPropertyName;
+    
+    if (!managedObjectContext || !cacheObject || !identityPropertyName) {
+        return;
+    }
     
     id identityValue = [cacheObject valueForKey:identityPropertyName];
     if (!identityValue) {
@@ -790,7 +790,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 {
     NSString *entityName = identityParameters.entityName;
     
-    if (!managedObjectContext || !entityName || !identityValue) {
+    if (!managedObjectContext || !entityName) {
         return;
     }
     
@@ -801,6 +801,11 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     
     NSMutableDictionary *dictionaryForEntity = [objectCache objectForKey:entityName];
     if (!dictionaryForEntity) {
+        return;
+    }
+    
+    if (!identityValue) {
+        [self setValue:[[NSMutableDictionary alloc] init] forKey:entityName];
         return;
     }
     
@@ -828,17 +833,23 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
         return;
     }
     
-    NSArray *cacheObjects = dictionaryForEntity.allValues;
-    for (NSManagedObject *currentCacheObject in cacheObjects) {
+    NSMutableArray *keysToRemove = [[NSMutableArray alloc] init];
+    
+    [dictionaryForEntity enumerateKeysAndObjectsUsingBlock:^(id  _Nonnull key, id  _Nonnull obj, BOOL * _Nonnull stop) {
+        NSManagedObject *currentCacheObject = (NSManagedObject *)obj;
+        
         if (currentCacheObject != affectedObject) {
-            continue;
+            return;
         }
         
-        [managedObjectContext deleteObject:currentCacheObject];
-        break;
+        [keysToRemove addObject:key];
+    }];
+    
+    if (keysToRemove.count > 1) {
+        [dictionaryForEntity removeObjectsForKeys:keysToRemove];
+        [objectCache setValue:dictionaryForEntity forKey:entityName];
     }
 }
-
 
 #pragma mark - Entity CRUD
 
@@ -862,11 +873,12 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (NSManagedObject *)createAndInsertObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
 {
-    if (!identityParameters.isValidForQuery) {
+    NSString *entityName = identityParameters.entityName;
+    NSString *identityPropertyName = identityParameters.identityPropertyName;
+    
+    if (!entityName || !identityValue) {
         return nil;
     }
-    
-    NSString *entityName = identityParameters.entityName;
     
     NSManagedObject *createdObject = [self createAndInsertObjectWithEntityName:entityName];
     if (!createdObject) {
@@ -874,16 +886,18 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     }
     
     id normalizedIdentityValue = [self normalizedIdentityValueForValue:identityValue];
-    [createdObject setValue:normalizedIdentityValue forKey:identityParameters.identityPropertyName];
+    if (!normalizedIdentityValue) {
+        return nil;
+    }
+    
+    [createdObject setValue:normalizedIdentityValue forKey:identityPropertyName];
     
     NSString *groupPropertyName = identityParameters.groupPropertyName;
-    
     if (groupIdentifier && groupPropertyName) {
         [createdObject setValue:groupIdentifier forKey:groupPropertyName];
     }
     
     NSManagedObjectContext *moc = [self currentMOC];
-    
     [self setCacheObject:createdObject forMOC:moc identityParameters:identityParameters];
     
     return createdObject;
@@ -891,7 +905,9 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (NSManagedObject *)findOrCreateObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
 {
-    if (!identityParameters.isValidForQuery) {
+    NSString *identityPropertyName = identityParameters.identityPropertyName;
+    
+    if (!identityPropertyName || !identityValue) {
         return nil;
     }
     
@@ -903,12 +919,12 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     NSManagedObject *object = nil;
     NSManagedObjectContext *moc = [self currentMOC];
     
-    object = [self cacheObjectForMOC:moc identityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+    object = [self cacheObjectForMOC:moc identityParameters:identityParameters identityValue:normalizedIdentityValue groupIdentifier:groupIdentifier];
     if (object) {
         return object;
     }
     
-    NSMutableArray *propertyList = [[NSMutableArray alloc] initWithObjects:identityParameters.identityPropertyName, nil];
+    NSMutableArray *propertyList = [[NSMutableArray alloc] initWithObjects:identityPropertyName, nil];
     NSMutableArray *valueList = [[NSMutableArray alloc] initWithObjects:normalizedIdentityValue, nil];
     
     NSString *groupPropertyName = identityParameters.groupPropertyName;
@@ -919,7 +935,9 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     }
     
     object = [self performSingleResultFetchForIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier error:NULL];
-    if (!object) {
+    if (object) {
+        [self setCacheObject:object forMOC:moc identityParameters:identityParameters];
+    } else {
         object = [self createAndInsertObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
         if (!object) {
             return nil;
@@ -932,16 +950,20 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 - (NSArray *)createObjectsFromDictionaryArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
 {
     NSString *entityName = identityParameters.entityName;
-    NSString *groupPropertyName = identityParameters.groupPropertyName;
     NSString *groupIdentifier = importParameters.groupIdentifier;
     NSString *dictionaryIdentityPropertyName = importParameters.dictionaryIdentityPropertyName;
     BOOL findExisting = importParameters.findExisting;
+    BOOL deleteExisting = importParameters.deleteExisting;
     
     if (!entityName || !dictionaryArray || dictionaryArray.count < 1) {
         return nil;
     }
     
     NSManagedObjectContext *managedObjectContext = [self currentMOC];
+    
+    if (importParameters.deleteExisting) {
+        [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters];
+    }
     
     NSMutableArray *affectedObjects = [[NSMutableArray alloc] init];
     
@@ -954,16 +976,10 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
             return;
         }
         
-        if (findExisting) {
+        if (findExisting && !deleteExisting) {
             affectedObject = [self findOrCreateObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
         } else if (identityValue) {
             affectedObject = [self createAndInsertObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
-        } else {
-            affectedObject = [self createAndInsertObjectWithEntityName:entityName];
-            
-            if (groupIdentifier && groupPropertyName) {
-                [affectedObject setValue:groupIdentifier forKey:groupPropertyName];
-            }
         }
         
         if (!affectedObject) {
@@ -983,18 +999,23 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (void)deleteObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
 {
-    if (!identityParameters.isValidForQuery) {
+    if (!identityParameters) {
         return;
     }
     
-    NSManagedObject *affectedObject = [self performSingleResultFetchForIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier error:NULL];
+    id normalizedIdentityValue = [self normalizedIdentityValueForValue:identityValue];
+    if (!normalizedIdentityValue) {
+        return;
+    }
+    
+    NSManagedObject *affectedObject = [self performSingleResultFetchForIdentityParameters:identityParameters identityValue:normalizedIdentityValue groupIdentifier:groupIdentifier error:NULL];
     if (!affectedObject) {
         return;
     }
     
     NSManagedObjectContext *moc = [self currentMOC];
     
-    [self removeCacheObjectForMOC:moc identityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+    [self removeCacheObjectForMOC:moc identityParameters:identityParameters identityValue:normalizedIdentityValue groupIdentifier:groupIdentifier];
     
     [moc deleteObject:affectedObject];
 }
@@ -1013,7 +1034,13 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
          return;
      }
      
+     BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
+     
      for (NSManagedObject *currentObject in objectList) {
+         id currentIDValue = [currentObject valueForKey:identityPropertyName];
+         id normalizedIDValue = [self normalizedIdentityValueForValue:currentIDValue];
+         [self removeCacheObjectForMOC:context identityParameters:identityParameters identityValue:normalizedIDValue groupIdentifier:nil];
+         
          [context deleteObject:currentObject];
      }
 }
@@ -1024,18 +1051,30 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
         return;
     }
     
+    NSManagedObjectContext *context = [self currentMOC];
+    
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
+    [self removeCacheObjectForMOC:context identityParameters:identityParameters identityValue:nil groupIdentifier:nil];
+    
     NSArray *objectsToDelete = [self objectsForEntityWithName:entityName sortDescriptors:nil];
-    [self deleteObjects:objectsToDelete];
+    [objectsToDelete enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        NSManagedObject *currentObject = (NSManagedObject *)obj;
+        [context deleteObject:currentObject];
+    }];
 }
 
 - (void)deleteObjectsWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters importParameters:(BCCDataStoreControllerImportParameters *)importParameters
 {
-    if (!identityParameters.isValidForQuery) {
-        return;
-    }
-
-    NSArray *objectsToDelete = [self objectsForIdentityParameters:identityParameters groupIdentifier:nil sortDescriptors:nil];
-    [self deleteObjects:objectsToDelete];
+    NSManagedObjectContext *context = [self currentMOC];
+    NSString *groupIdentifier = importParameters.groupIdentifier;
+    
+    [self removeCacheObjectForMOC:context identityParameters:identityParameters identityValue:nil groupIdentifier:groupIdentifier];
+    
+    NSArray *objectsToDelete = [self objectsForIdentityParameters:identityParameters groupIdentifier:groupIdentifier sortDescriptors:nil];
+    [objectsToDelete enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        NSManagedObject *currentObject = (NSManagedObject *)obj;
+        [context deleteObject:currentObject];
+    }];
 }
 
 - (void)deleteObjects:(NSArray *)affectedObjects
@@ -1061,6 +1100,10 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (NSArray *)objectsForIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet sortDescriptors:(NSArray *)sortDescriptors
 {
+    if (!identityParameters.entityName) {
+        return nil;
+    }
+    
     NSFetchRequest *fetchRequest = [self fetchRequestForIdentityParameters:identityParameters identityValue:nil groupIdentifier:groupIdentifier sortDescriptors:sortDescriptors];
 
     NSArray *fullObjectList = [self performFetchRequest:fetchRequest error:NULL];
