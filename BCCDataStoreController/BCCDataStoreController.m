@@ -1535,9 +1535,127 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     [self.observerInfo removeTarget:observer];
 }
 
+@end
 
 
-#pragma mark - ----- Deprecated -----
+#pragma mark -
+
+@implementation BCCDataStoreControllerIdentityParameters
+
+#pragma mark - Class Methods
+
++ (instancetype)identityParametersWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName
+{
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
+    identityParameters.identityPropertyName = identityPropertyName;
+    
+    return identityParameters;
+}
+
++ (instancetype)identityParametersWithEntityName:(NSString *)entityName groupPropertyName:(NSString *)groupPropertyName
+{
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
+    identityParameters.groupPropertyName = groupPropertyName;
+    
+    return identityParameters;
+}
+
+#pragma mark - Initialization
+
+- (instancetype)initWithEntityName:(NSString *)entityName
+{
+    self = [super init];
+    if (!self) {
+        return nil;
+    }
+    
+    _entityName = entityName;
+    
+    return self;
+}
+
+#pragma mark - Accessors
+
+- (BOOL)isValidForQuery
+{
+    return (_entityName != nil && _identityPropertyName != nil);
+}
+
+@end
+
+#pragma mark -
+
+@implementation BCCDataStoreControllerWorkParameters
+
+#pragma mark - Initialization
+
+- (id)init
+{
+    self = [super init];
+    if (!self) {
+        return nil;
+    }
+    
+    _workExecutionStyle = BCCDataStoreControllerWorkExecutionStyleMainMOCAndWait;
+    
+    _workBlock = NULL;
+    _postSaveBlock = NULL;
+    _shouldSave = YES;
+    _executionDelay = 0.0f;
+    
+    return self;
+}
+
+@end
+
+#pragma mark -
+
+@implementation BCCDataStoreControllerImportParameters
+
+@end
+
+#pragma mark -
+
+@implementation BCCDataStoreChangeNotification
+
+#pragma mark - Initialization
+
+- (id)initWithDictionary:(NSDictionary *)dictionary
+{
+    self = [super init];
+    if (!self) {
+        return nil;
+    }
+    
+    _updatedObjects = dictionary[NSUpdatedObjectsKey];
+    _insertedObjects = dictionary[NSInsertedObjectsKey];
+    _deletedObjects = dictionary[NSDeletedObjectsKey];
+    
+    return self;
+}
+
+@end
+
+#pragma mark -
+
+@implementation BCCDataStoreTargetAction
+
+#pragma mark - Class Methods
+
++ (BCCDataStoreTargetAction *)targetActionForKey:(NSString *)key withTarget:(id)target action:(SEL)action predicate:(NSPredicate *)predicate requiredChangedKeys:(NSArray *)changedKeys
+{
+    BCCDataStoreTargetAction *targetAction = (BCCDataStoreTargetAction *)[BCCDataStoreTargetAction targetActionForKey:key withTarget:target action:action];
+    targetAction.predicate = predicate;
+    targetAction.requiredChangedKeys = changedKeys;
+    
+    return targetAction;
+}
+
+@end
+
+#pragma mark -
+
+@implementation BCCDataStoreController (Deprecated)
 
 #pragma mark - Worker Queue Object Cache
 
@@ -1629,121 +1747,6 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     identityParameters.groupPropertyName = groupPropertyName;
     
     return [self objectsForIdentityParameters:identityParameters groupIdentifier:groupIdentifier filteredByProperty:propertyName valueSet:valueSet sortDescriptors:sortDescriptors];
-}
-
-@end
-
-
-#pragma mark -
-
-@implementation BCCDataStoreControllerIdentityParameters
-
-#pragma mark - Class Methods
-
-+ (instancetype)identityParametersWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName
-{
-    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
-    identityParameters.identityPropertyName = identityPropertyName;
-    
-    return identityParameters;
-}
-
-+ (instancetype)identityParametersWithEntityName:(NSString *)entityName groupPropertyName:(NSString *)groupPropertyName
-{
-    BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
-    identityParameters.groupPropertyName = groupPropertyName;
-    
-    return identityParameters;
-}
-
-#pragma mark - Initialization
-
-- (instancetype)initWithEntityName:(NSString *)entityName
-{
-    self = [super init];
-    if (!self) {
-        return nil;
-    }
-    
-    _entityName = entityName;
-    
-    return self;
-}
-
-#pragma mark - Accessors
-
-- (BOOL)isValidForQuery
-{
-    return (_entityName != nil && _identityPropertyName != nil);
-}
-
-@end
-
-#pragma mark -
-
-@implementation BCCDataStoreControllerWorkParameters
-
-#pragma mark - Initialization
-
-- (id)init
-{
-    self = [super init];
-    if (!self) {
-        return nil;
-    }
-    
-    _workExecutionStyle = BCCDataStoreControllerWorkExecutionStyleMainMOCAndWait;
-    
-    _workBlock = NULL;
-    _postSaveBlock = NULL;
-    _shouldSave = YES;
-    _executionDelay = 0.0f;
-    
-    return self;
-}
-
-@end
-
-#pragma mark -
-
-@implementation BCCDataStoreControllerImportParameters
-
-@end
-
-
-@implementation BCCDataStoreChangeNotification
-
-#pragma mark - Initialization
-
-- (id)initWithDictionary:(NSDictionary *)dictionary
-{
-    self = [super init];
-    if (!self) {
-        return nil;
-    }
-    
-    _updatedObjects = dictionary[NSUpdatedObjectsKey];
-    _insertedObjects = dictionary[NSInsertedObjectsKey];
-    _deletedObjects = dictionary[NSDeletedObjectsKey];
-    
-    return self;
-}
-
-@end
-
-#pragma mark -
-
-@implementation BCCDataStoreTargetAction
-
-#pragma mark - Class Methods
-
-+ (BCCDataStoreTargetAction *)targetActionForKey:(NSString *)key withTarget:(id)target action:(SEL)action predicate:(NSPredicate *)predicate requiredChangedKeys:(NSArray *)changedKeys
-{
-    BCCDataStoreTargetAction *targetAction = (BCCDataStoreTargetAction *)[BCCDataStoreTargetAction targetActionForKey:key withTarget:target action:action];
-    targetAction.predicate = predicate;
-    targetAction.requiredChangedKeys = changedKeys;
-    
-    return targetAction;
 }
 
 @end

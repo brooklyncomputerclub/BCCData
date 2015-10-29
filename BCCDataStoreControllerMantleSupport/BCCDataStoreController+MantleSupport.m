@@ -12,10 +12,8 @@
 
 @implementation BCCDataStoreController (MantleSupport)
 
-- (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject
+- (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters
 {
-    BCCDataStoreControllerIdentityParameters *identityParameters = [[mantleObject class] BCC_identityParameters];
-    
     if (!identityParameters.identityPropertyName) {
         return nil;
     }
@@ -34,10 +32,8 @@
     return [self createAndInsertObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
 }
 
-- (NSManagedObject * _Nullable)findOrCreateObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject
+- (NSManagedObject * _Nullable)findOrCreateObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters
 {
-    BCCDataStoreControllerIdentityParameters *identityParameters = [[mantleObject class] BCC_identityParameters];
-    
     NSString *identityPropertyName = identityParameters.identityPropertyName;
     
     if (!identityPropertyName) {
@@ -55,7 +51,7 @@
 }
 
 // Entity Mass Creation
-- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel <BCCDataStoreControllerMantleObjectSerializing> *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock
+- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock
 {
     if (mantleObjectArray.count < 1) {
         return nil;
@@ -67,7 +63,7 @@
     BOOL deleteExisting = importParameters.deleteExisting;
     
     if (importParameters.deleteExisting) {
-        // TO DO
+        [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters];
     }
 
     NSString *groupIdentifier = importParameters.groupIdentifier;
@@ -78,16 +74,14 @@
         NSManagedObject *affectedObject = nil;
         
         if (findExisting && !deleteExisting) {
-            affectedObject = [self findOrCreateObjectWithMantleObject:obj];
+            affectedObject = [self findOrCreateObjectWithMantleObject:obj identityParameters:identityParameters];
         } else {
-            affectedObject = [self createAndInsertObjectWithMantleObject:obj];
+            affectedObject = [self createAndInsertObjectWithMantleObject:obj identityParameters:identityParameters];
         }
         
         if (!affectedObject) {
             return;
         }
-        
-        BCCDataStoreControllerIdentityParameters *identityParameters = [[obj class] BCC_identityParameters];
         
         NSString *groupPropertyName = identityParameters.groupPropertyName;
         if (groupIdentifier && groupPropertyName) {

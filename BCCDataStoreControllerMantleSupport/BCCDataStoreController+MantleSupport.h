@@ -15,21 +15,12 @@
 @interface BCCDataStoreController (MantleSupport)
 
 // Entity CRUD
-- (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject;
+- (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters;
 
 // Entity Find Or Create
-- (NSManagedObject * _Nullable)findOrCreateObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject;
+- (NSManagedObject * _Nullable)findOrCreateObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters;
 
 // Entity Mass Creation
-- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel <BCCDataStoreControllerMantleObjectSerializing> *> * _Nonnull)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock;
-
-@end
-
-
-@protocol BCCDataStoreControllerMantleObjectSerializing <MTLModel>
-
-@required
-
-+ (BCCDataStoreControllerIdentityParameters * _Nonnull)BCC_identityParameters;
+- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock;
 
 @end
