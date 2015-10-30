@@ -10,6 +10,13 @@
 #import "BCCDataStoreController.h"
 
 
+@interface BCCDataStoreController (MantleSupportPrivate)
+
+- (void)updateManagedObject:(NSManagedObject * _Nonnull)managedObject usingModelObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)model error:(NSError **)error;
+
+@end
+
+
 @implementation BCCDataStoreController (MantleSupport)
 
 - (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters
@@ -45,9 +52,12 @@
         return nil;
     }
     
-    NSManagedObject *object = [self findOrCreateObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:nil];
+    NSManagedObject *affectedObject = [self findOrCreateObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:nil];
+    if (affectedObject) {
+        [self updateManagedObject:affectedObject usingModelObject:mantleObject error:NULL];
+    }
     
-    return object;
+    return affectedObject;
 }
 
 // Entity Mass Creation
@@ -96,6 +106,158 @@
     }];
     
     return nil;
+}
+
+// Adapted from MTLManagedObjectAdapter
+// https://github.com/Mantle/MTLManagedObjectAdapter/blob/master/MTLManagedObjectAdapter/MTLManagedObjectAdapter.m
+
+- (void)updateManagedObject:(NSManagedObject * _Nonnull)managedObject usingModelObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)model error:(NSError **)error
+{
+    Class modelClass = [model class];
+    NSDictionary *managedObjectKeysByPropertyKey = [modelClass managedObjectKeysByPropertyKey];
+    
+    // Assign all errors to this variable to work around a memory problem.
+    //
+    // See https://github.com/github/Mantle/pull/120 for more context.
+    __block NSError *tmpError;
+    
+    NSDictionary *dictionaryValue = model.dictionaryValue;
+    NSDictionary *managedObjectProperties = managedObject.entity.propertiesByName;
+    
+    [dictionaryValue enumerateKeysAndObjectsUsingBlock:^(NSString *propertyKey, id value, BOOL *stop) {
+        NSString *managedObjectKey = managedObjectKeysByPropertyKey[propertyKey];
+        if (managedObjectKey == nil) return;
+        if ([value isEqual:NSNull.null]) value = nil;
+        
+        BOOL (^serializeAttribute)(NSAttributeDescription *) = ^(NSAttributeDescription *attributeDescription) {
+            // Mark this as being autoreleased, because validateValue may return
+            // a new object to be stored in this variable (and we don't want ARC to
+            // double-free or leak the old or new values).
+            __autoreleasing id transformedValue = value;
+            
+            NSValueTransformer *transformer = [modelClass entityAttributeTransformerForKey:propertyKey];
+            if ([transformer.class allowsReverseTransformation]) {
+                if ([transformer respondsToSelector:@selector(reverseTransformedValue:success:error:)]) {
+                    id<MTLTransformerErrorHandling> errorHandlingTransformer = (id)transformer;
+                    
+                    BOOL success = YES;
+                    transformedValue = [errorHandlingTransformer reverseTransformedValue:value success:&success error:error];
+                    
+                    if (!success) return NO;
+                } else {
+                    transformedValue = [transformer reverseTransformedValue:transformedValue];
+                }
+            }
+            
+            if (![managedObject validateValue:&transformedValue forKey:managedObjectKey error:&tmpError]) return NO;
+            [managedObject setValue:transformedValue forKey:managedObjectKey];
+            
+            return YES;
+        };
+        
+        NSManagedObject * (^objectForRelationshipFromModel)(id) = ^ id (id model) {
+            /*if (![model conformsToProtocol:@protocol(BCCDataStoreControllerMantleObjectSerializing)]) {
+                NSString *failureReason = [NSString stringWithFormat:NSLocalizedString(@"Property of class %@ cannot be encoded into an NSManagedObject.", @""), [model class]];
+                
+                NSDictionary *userInfo = @{
+                                           NSLocalizedDescriptionKey: NSLocalizedString(@"Could not serialize managed object", @""),
+                                           NSLocalizedFailureReasonErrorKey: failureReason
+                                           };
+                
+                tmpError = [NSError errorWithDomain:MTLManagedObjectAdapterErrorDomain code:MTLManagedObjectAdapterErrorUnsupportedRelationshipClass userInfo:userInfo];
+                
+                return nil;
+            }
+            
+            return [self.class managedObjectFromModel:model insertingIntoContext:context processedObjects:processedObjects error:&tmpError];*/
+            
+            return nil;
+        };
+        
+        BOOL (^serializeRelationship)(NSRelationshipDescription *) = ^(NSRelationshipDescription *relationshipDescription) {
+            if (value == nil) return YES;
+            
+            if ([relationshipDescription isToMany]) {
+                if (![value conformsToProtocol:@protocol(NSFastEnumeration)]) {
+                    /*NSString *failureReason = [NSString stringWithFormat:NSLocalizedString(@"Property of class %@ cannot be encoded into a to-many relationship.", @""), [value class]];
+                    
+                    NSDictionary *userInfo = @{
+                                               NSLocalizedDescriptionKey: NSLocalizedString(@"Could not serialize managed object", @""),
+                                               NSLocalizedFailureReasonErrorKey: failureReason
+                                               };
+                    
+                    tmpError = [NSError errorWithDomain:MTLManagedObjectAdapterErrorDomain code:MTLManagedObjectAdapterErrorUnsupportedRelationshipClass userInfo:userInfo];*/
+                    
+                    return NO;
+                }
+                
+                id relationshipCollection;
+                if ([relationshipDescription isOrdered]) {
+                    relationshipCollection = [NSMutableOrderedSet orderedSet];
+                } else {
+                    relationshipCollection = [NSMutableSet set];
+                }
+                
+                for (id<MTLModel> model in value) {
+                    NSManagedObject *nestedObject = objectForRelationshipFromModel(model);
+                    if (nestedObject == nil) return NO;
+                    
+                    [relationshipCollection addObject:nestedObject];
+                }
+                
+                [managedObject setValue:relationshipCollection forKey:managedObjectKey];
+            } else {
+                NSManagedObject *nestedObject = objectForRelationshipFromModel(value);
+                if (nestedObject == nil) return NO;
+                
+                [managedObject setValue:nestedObject forKey:managedObjectKey];
+            }
+            
+            return YES;
+        };
+        
+        BOOL (^serializeProperty)(NSPropertyDescription *) = ^(NSPropertyDescription *propertyDescription) {
+            if (propertyDescription == nil) {
+                /*NSString *failureReason = [NSString stringWithFormat:NSLocalizedString(@"No property by name \"%@\" exists on the entity.", @""), managedObjectKey];
+                
+                NSDictionary *userInfo = @{
+                                           NSLocalizedDescriptionKey: NSLocalizedString(@"Could not serialize managed object", @""),
+                                           NSLocalizedFailureReasonErrorKey: failureReason
+                                           };
+                
+                tmpError = [NSError errorWithDomain:MTLManagedObjectAdapterErrorDomain code:MTLManagedObjectAdapterErrorInvalidManagedObjectKey userInfo:userInfo];*/
+                
+                return NO;
+            }
+            
+            // Jump through some hoops to avoid referencing classes directly.
+            NSString *propertyClassName = NSStringFromClass(propertyDescription.class);
+            if ([propertyClassName isEqual:@"NSAttributeDescription"]) {
+                return serializeAttribute((id)propertyDescription);
+            } else if ([propertyClassName isEqual:@"NSRelationshipDescription"]) {
+                return serializeRelationship((id)propertyDescription);
+            } else {
+                /*NSString *failureReason = [NSString stringWithFormat:NSLocalizedString(@"Property descriptions of class %@ are unsupported.", @""), propertyClassName];
+                
+                NSDictionary *userInfo = @{
+                                           NSLocalizedDescriptionKey: NSLocalizedString(@"Could not serialize managed object", @""),
+                                           NSLocalizedFailureReasonErrorKey: failureReason
+                                           };
+                
+                tmpError = [NSError errorWithDomain:MTLManagedObjectAdapterErrorDomain code:MTLManagedObjectAdapterErrorUnsupportedManagedObjectPropertyType userInfo:userInfo];*/
+                
+                return NO;
+            }
+        };
+        
+        if (!serializeProperty(managedObjectProperties[managedObjectKey])) {
+            *stop = YES;
+        }
+    }];
+    
+    if (error != NULL) {
+        *error = tmpError;
+    }
 }
 
 @end
