@@ -4,6 +4,8 @@
 //  Created by Buzz Andersen on 3/24/11.
 //  Copyright 2013 Brooklyn Computer Club. All rights reserved.
 //
+//  Version 3.0
+
 
 #import <Foundation/Foundation.h>
 #import <CoreData/CoreData.h>
@@ -95,9 +97,6 @@ typedef enum {
 // Entity Find Or Create
 - (NSManagedObject *)findOrCreateObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier;
 
-// Entity Mass Creation
-- (NSArray *)createObjectsFromDictionaryArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
-
 // Entity Deletion
 - (void)deleteObjects:(NSArray *)affectedObjects;
 - (void)deleteObjectsWithEntityName:(NSString *)entityName;
@@ -142,6 +141,14 @@ typedef enum {
 
 - (void)removeObserver:(id)observer;
 - (void)removeObserver:(id)observer forEntityName:(NSString *)entityName;
+
+@end
+
+
+@interface BCCDataStoreController (JSONSupport)
+
+// Entity Mass Creation
+- (NSArray *)createObjectsFromJSONArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
 
 @end
 

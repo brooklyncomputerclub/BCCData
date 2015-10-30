@@ -947,56 +947,6 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     return object;
 }
 
-- (NSArray *)createObjectsFromDictionaryArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
-{
-    NSString *entityName = identityParameters.entityName;
-    NSString *groupIdentifier = importParameters.groupIdentifier;
-    NSString *dictionaryIdentityPropertyName = importParameters.dictionaryIdentityPropertyName;
-    BOOL findExisting = importParameters.findExisting;
-    BOOL deleteExisting = importParameters.deleteExisting;
-    
-    if (!entityName || !dictionaryArray || dictionaryArray.count < 1) {
-        return nil;
-    }
-    
-    NSManagedObjectContext *managedObjectContext = [self currentMOC];
-    
-    if (importParameters.deleteExisting) {
-        [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters];
-    }
-    
-    NSMutableArray *affectedObjects = [[NSMutableArray alloc] init];
-    
-    [dictionaryArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-        NSDictionary *currentDictionary = (NSDictionary *)obj;
-        
-        NSManagedObject *affectedObject = nil;
-        id identityValue = [currentDictionary valueForKeyPath:dictionaryIdentityPropertyName];
-        if (!identityValue && findExisting) {
-            return;
-        }
-        
-        if (findExisting && !deleteExisting) {
-            affectedObject = [self findOrCreateObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
-        } else if (identityValue) {
-            affectedObject = [self createAndInsertObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
-        }
-        
-        if (!affectedObject) {
-            return;
-        }
-        
-        if (postCreateBlock) {
-            postCreateBlock(affectedObject, currentDictionary, idx, managedObjectContext);
-        }
-        
-        [affectedObjects addObject:affectedObject];
-        
-    }];
-    
-    return affectedObjects;
-}
-
 - (void)deleteObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier
 {
     if (!identityParameters) {
@@ -1537,6 +1487,61 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 @end
 
+#pragma mark -
+
+@implementation BCCDataStoreController (JSONSupport)
+
+- (NSArray *)createObjectsFromJSONArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
+{
+    NSString *entityName = identityParameters.entityName;
+    NSString *groupIdentifier = importParameters.groupIdentifier;
+    NSString *dictionaryIdentityPropertyName = importParameters.dictionaryIdentityPropertyName;
+    BOOL findExisting = importParameters.findExisting;
+    BOOL deleteExisting = importParameters.deleteExisting;
+    
+    if (!entityName || !dictionaryArray || dictionaryArray.count < 1) {
+        return nil;
+    }
+    
+    NSManagedObjectContext *managedObjectContext = [self currentMOC];
+    
+    if (importParameters.deleteExisting) {
+        [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters];
+    }
+    
+    NSMutableArray *affectedObjects = [[NSMutableArray alloc] init];
+    
+    [dictionaryArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+        NSDictionary *currentDictionary = (NSDictionary *)obj;
+        
+        NSManagedObject *affectedObject = nil;
+        id identityValue = [currentDictionary valueForKeyPath:dictionaryIdentityPropertyName];
+        if (!identityValue && findExisting) {
+            return;
+        }
+        
+        if (findExisting && !deleteExisting) {
+            affectedObject = [self findOrCreateObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+        } else if (identityValue) {
+            affectedObject = [self createAndInsertObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+        }
+        
+        if (!affectedObject) {
+            return;
+        }
+        
+        if (postCreateBlock) {
+            postCreateBlock(affectedObject, currentDictionary, idx, managedObjectContext);
+        }
+        
+        [affectedObjects addObject:affectedObject];
+        
+    }];
+    
+    return affectedObjects;
+}
+
+@end
 
 #pragma mark -
 
