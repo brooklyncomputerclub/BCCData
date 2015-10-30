@@ -1722,7 +1722,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     importParameters.dictionaryIdentityPropertyName = dictionaryIdentityPropertyName;
     importParameters.findExisting = findExisting;
     
-    return [self createObjectsFromDictionaryArray:dictionaryArray usingImportParameters:importParameters identityParameters:identityParameters postCreateBlock:postCreateBlock];
+    return [self createObjectsFromJSONArray:dictionaryArray usingImportParameters:importParameters identityParameters:identityParameters postCreateBlock:postCreateBlock];
 }
 
 - (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier
