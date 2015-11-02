@@ -12,12 +12,19 @@
 
 @interface BCCDataStoreController (MantleSupportPrivate)
 
+// Serialization
 - (void)updateManagedObject:(NSManagedObject * _Nonnull)managedObject usingModelObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)model error:(NSError **)error;
+
+// Deserialization
+- (void)updateMantleObject:(MTLModel * _Nonnull)model withManagedObject:(NSManagedObject * _Nonnull)managedObject error:(NSError **)error;
 
 @end
 
 
 @implementation BCCDataStoreController (MantleSupport)
+
+#pragma mark -
+#pragma mark - Entity Mass Creation
 
 - (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters
 {
@@ -60,7 +67,6 @@
     return affectedObject;
 }
 
-// Entity Mass Creation
 - (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock
 {
     if (mantleObjectArray.count < 1) {
@@ -107,6 +113,32 @@
     
     return nil;
 }
+
+#pragma mark -
+#pragma mark Query By Entity
+
+- (NSArray * _Nullable)mantleObjectsOfClass:(Class _Nonnull)modelClass forIdentityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters groupIdentifier:(NSString * _Nullable)groupIdentifier sortDescriptors:(NSArray * _Nullable)sortDescriptors
+{
+    return [self mantleObjectsOfClass:modelClass forIdentityParameters:identityParameters groupIdentifier:groupIdentifier filteredByProperty:nil valueSet:nil sortDescriptors:sortDescriptors];
+}
+
+- (NSArray *)mantleObjectsOfClass:(Class)modelClass forIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet sortDescriptors:(NSArray *)sortDescriptors
+{
+    NSArray *affectedObjects = [self objectsForIdentityParameters:identityParameters groupIdentifier:groupIdentifier filteredByProperty:propertyName valueSet:valueSet sortDescriptors:sortDescriptors];
+    
+    NSMutableArray *mantleObjects = [[NSMutableArray alloc] init];
+    
+    [affectedObjects enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        MTLModel *model = [[modelClass alloc] init];
+        [self updateMantleObject:model withManagedObject:obj error:NULL];
+        [mantleObjects addObject:model];
+    }];
+    
+    return mantleObjects;
+}
+
+#pragma mark -
+#pragma mark Serialization
 
 // Adapted from MTLManagedObjectAdapter
 // https://github.com/Mantle/MTLManagedObjectAdapter/blob/master/MTLManagedObjectAdapter/MTLManagedObjectAdapter.m
@@ -257,6 +289,102 @@
     
     if (error != NULL) {
         *error = tmpError;
+    }
+}
+
+#pragma mark - Deserialization
+
+// Adapted from MTLManagedObjectAdapter
+// https://github.com/Mantle/MTLManagedObjectAdapter/blob/master/MTLManagedObjectAdapter/MTLManagedObjectAdapter.m
+// - (id)modelFromManagedObject:(NSManagedObject *)managedObject processedObjects:(CFMutableDictionaryRef)processedObjects error:(NSError **)error
+
+- (void)updateMantleObject:(MTLModel * _Nonnull)model withManagedObject:(NSManagedObject * _Nonnull)managedObject error:(NSError **)error
+{
+    Class modelClass = [model class];
+    NSDictionary *managedObjectKeysByPropertyKey = [modelClass managedObjectKeysByPropertyKey];
+    
+    NSEntityDescription *entity = managedObject.entity;
+    NSAssert(entity != nil, @"%@ returned a nil +entity", managedObject);
+    
+    NSDictionary *managedObjectProperties = entity.propertiesByName;
+    
+    BOOL (^setValueForKey)(NSString *, id) = ^(NSString *key, id value) {
+        // Mark this as being autoreleased, because validateValue may return
+        // a new object to be stored in this variable (and we don't want ARC to
+        // double-free or leak the old or new values).
+        __autoreleasing id replaceableValue = value;
+        if (![model validateValue:&replaceableValue forKey:key error:error]) return NO;
+        
+        [model setValue:replaceableValue forKey:key];
+        
+        return YES;
+    };
+    
+    for (NSString *propertyKey in [modelClass propertyKeys]) {
+        NSString *managedObjectKey = managedObjectKeysByPropertyKey[propertyKey];
+        if (managedObjectKey == nil) continue;
+        
+        
+        BOOL (^deserializeAttribute)(NSAttributeDescription *) = ^(NSAttributeDescription *attributeDescription) {
+            id value = [managedObject valueForKey:managedObjectKey];
+            
+            NSValueTransformer *transformer = [modelClass entityAttributeTransformerForKey:propertyKey];
+            
+            if ([transformer respondsToSelector:@selector(transformedValue:success:error:)]) {
+                id<MTLTransformerErrorHandling> errorHandlingTransformer = (id)transformer;
+
+                BOOL success = YES;
+                value = [errorHandlingTransformer transformedValue:value success:&success error:error];
+                
+                if (!success) return NO;
+            } else if (transformer != nil) {
+                value = [transformer transformedValue:value];
+            }
+            
+            return setValueForKey(propertyKey, value);
+        };
+        
+        BOOL (^deserializeProperty)(NSPropertyDescription *) = ^(NSPropertyDescription *propertyDescription) {
+            if (propertyDescription == nil) {
+                if (error != NULL) {
+                    /*NSString *failureReason = [NSString stringWithFormat:NSLocalizedString(@"No property by name \"%@\" exists on the entity.", @""), managedObjectKey];
+
+                    NSDictionary *userInfo = @{
+                                               NSLocalizedDescriptionKey: NSLocalizedString(@"Could not deserialize managed object", @""),
+                                               NSLocalizedFailureReasonErrorKey: failureReason,
+                                               };
+
+                    *error = [NSError errorWithDomain:MTLManagedObjectAdapterErrorDomain code:MTLManagedObjectAdapterErrorInvalidManagedObjectKey userInfo:userInfo];*/
+                }
+
+                return NO;
+            }
+
+            // Jump through some hoops to avoid referencing classes directly.
+            NSString *propertyClassName = NSStringFromClass(propertyDescription.class);
+            
+            if ([propertyClassName isEqual:@"NSAttributeDescription"]) {
+                return deserializeAttribute((id)propertyDescription);
+            } else if ([propertyClassName isEqual:@"NSRelationshipDescription"]) {
+                return NO;
+                //return deserializeRelationship((id)propertyDescription);
+            } else {
+                if (error != NULL) {
+                    /*NSString *failureReason = [NSString stringWithFormat:NSLocalizedString(@"Property descriptions of class %@ are unsupported.", @""), propertyClassName];
+                    
+                    NSDictionary *userInfo = @{
+                                               NSLocalizedDescriptionKey: NSLocalizedString(@"Could not deserialize managed object", @""),
+                                               NSLocalizedFailureReasonErrorKey: failureReason,
+                                               };
+
+                    *error = [NSError errorWithDomain:MTLManagedObjectAdapterErrorDomain code:MTLManagedObjectAdapterErrorUnsupportedManagedObjectPropertyType userInfo:userInfo];*/
+                }
+                
+                return NO;
+            }
+        };
+
+        if (!deserializeProperty(managedObjectProperties[managedObjectKey])) return;
     }
 }
 
