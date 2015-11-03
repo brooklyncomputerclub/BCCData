@@ -26,28 +26,33 @@
 #pragma mark -
 #pragma mark - Entity Mass Creation
 
-- (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters
+- (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject withGroupIdentifier:(NSString * _Nullable)groupIdentifier
 {
-    if (!identityParameters.identityPropertyName) {
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[mantleObject class] managedObjectIdentityParameters];
+    
+    NSString *identityPropertyName = identityParameters.identityPropertyName;
+    
+    if (!identityPropertyName) {
         return nil;
     }
     
-    id identityValue = [mantleObject valueForKey:identityParameters.identityPropertyName];
+    id identityValue = [mantleObject valueForKeyPath:identityPropertyName];
     if (!identityValue) {
         return nil;
     }
     
-    NSString *groupPropertyName = identityParameters.groupPropertyName;
-    NSString *groupIdentifier = nil;
-    if (groupPropertyName) {
-        [mantleObject valueForKey:groupPropertyName];
+    NSManagedObject *affectedObject = [self createAndInsertObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+    if (affectedObject) {
+        [self updateManagedObject:affectedObject usingModelObject:mantleObject error:NULL];
     }
     
-    return [self createAndInsertObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+    return affectedObject;
 }
 
-- (NSManagedObject * _Nullable)findOrCreateObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters
+- (NSManagedObject * _Nullable)findOrCreateObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject groupIdentifier:(NSString * _Nullable)groupIdentifier
 {
+    BCCDataStoreControllerIdentityParameters *identityParameters = [[mantleObject class] managedObjectIdentityParameters];
+    
     NSString *identityPropertyName = identityParameters.identityPropertyName;
     
     if (!identityPropertyName) {
@@ -67,7 +72,7 @@
     return affectedObject;
 }
 
-- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock
+- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock
 {
     if (mantleObjectArray.count < 1) {
         return nil;
@@ -75,31 +80,40 @@
     
     NSManagedObjectContext *managedObjectContext = [self currentMOC];
     
-    BOOL findExisting = importParameters.findExisting;
-    BOOL deleteExisting = importParameters.deleteExisting;
-    
-    if (importParameters.deleteExisting) {
-        [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters];
-    }
-
     NSString *groupIdentifier = importParameters.groupIdentifier;
     
+    BOOL findExisting = importParameters.findExisting;
+    BOOL deleteExisting = (groupIdentifier != nil) && importParameters.deleteExisting;
+    
     NSMutableArray *affectedObjects = [[NSMutableArray alloc] init];
+    NSMutableSet *entityGroupsAlreadyDeleted = [[NSMutableSet alloc] init];
     
     [mantleObjectArray enumerateObjectsUsingBlock:^(MTLModel<BCCDataStoreControllerMantleObjectSerializing> * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        BCCDataStoreControllerIdentityParameters *identityParameters = [[obj class] managedObjectIdentityParameters];
+        NSString *entityName = identityParameters.entityName;
+        
+        if (!entityName) {
+            return;
+        }
+        
+        NSString *groupPropertyName = identityParameters.groupPropertyName;
+        if (![entityGroupsAlreadyDeleted containsObject:entityName] && deleteExisting && groupPropertyName) {
+            [self deleteObjectsWithIdentityParameters:identityParameters groupIdentifier:groupIdentifier];
+            [entityGroupsAlreadyDeleted addObject:entityName];
+        }
+        
         NSManagedObject *affectedObject = nil;
         
         if (findExisting && !deleteExisting) {
-            affectedObject = [self findOrCreateObjectWithMantleObject:obj identityParameters:identityParameters];
+            affectedObject = [self findOrCreateObjectWithMantleObject:obj groupIdentifier:groupIdentifier];
         } else {
-            affectedObject = [self createAndInsertObjectWithMantleObject:obj identityParameters:identityParameters];
+            affectedObject = [self createAndInsertObjectWithMantleObject:obj withGroupIdentifier:groupIdentifier];;
         }
         
         if (!affectedObject) {
             return;
         }
         
-        NSString *groupPropertyName = identityParameters.groupPropertyName;
         if (groupIdentifier && groupPropertyName) {
             [affectedObject setValue:groupIdentifier forKey:groupPropertyName];
         }
@@ -145,16 +159,19 @@
 
 - (void)updateManagedObject:(NSManagedObject * _Nonnull)managedObject usingModelObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)model error:(NSError **)error
 {
-    Class modelClass = [model class];
-    NSDictionary *managedObjectKeysByPropertyKey = [modelClass managedObjectKeysByPropertyKey];
-    
     // Assign all errors to this variable to work around a memory problem.
     //
     // See https://github.com/github/Mantle/pull/120 for more context.
     __block NSError *tmpError;
     
+    Class modelClass = [model class];
+    NSDictionary *managedObjectKeysByPropertyKey = [modelClass managedObjectKeysByPropertyKey];
+
     NSDictionary *dictionaryValue = model.dictionaryValue;
     NSDictionary *managedObjectProperties = managedObject.entity.propertiesByName;
+    
+    NSEntityDescription *entity = managedObject.entity;
+    NSAssert(entity != nil, @"%@ returned a nil +entity", managedObject);
     
     [dictionaryValue enumerateKeysAndObjectsUsingBlock:^(NSString *propertyKey, id value, BOOL *stop) {
         NSString *managedObjectKey = managedObjectKeysByPropertyKey[propertyKey];
@@ -188,22 +205,33 @@
         };
         
         NSManagedObject * (^objectForRelationshipFromModel)(id) = ^ id (id model) {
-            /*if (![model conformsToProtocol:@protocol(BCCDataStoreControllerMantleObjectSerializing)]) {
-                NSString *failureReason = [NSString stringWithFormat:NSLocalizedString(@"Property of class %@ cannot be encoded into an NSManagedObject.", @""), [model class]];
+            if (![model conformsToProtocol:@protocol(BCCDataStoreControllerMantleObjectSerializing)]) {
+                /*NSString *failureReason = [NSString stringWithFormat:NSLocalizedString(@"Property of class %@ cannot be encoded into an NSManagedObject.", @""), [model class]];
                 
                 NSDictionary *userInfo = @{
                                            NSLocalizedDescriptionKey: NSLocalizedString(@"Could not serialize managed object", @""),
                                            NSLocalizedFailureReasonErrorKey: failureReason
                                            };
                 
-                tmpError = [NSError errorWithDomain:MTLManagedObjectAdapterErrorDomain code:MTLManagedObjectAdapterErrorUnsupportedRelationshipClass userInfo:userInfo];
+                tmpError = [NSError errorWithDomain:MTLManagedObjectAdapterErrorDomain code:MTLManagedObjectAdapterErrorUnsupportedRelationshipClass userInfo:userInfo];*/
                 
                 return nil;
             }
             
-            return [self.class managedObjectFromModel:model insertingIntoContext:context processedObjects:processedObjects error:&tmpError];*/
+            BCCDataStoreControllerIdentityParameters *identityParameters = [[(MTLModel <BCCDataStoreControllerMantleObjectSerializing> *)model class] managedObjectIdentityParameters];
             
-            return nil;
+            id identityValue = [model valueForKey:identityParameters.identityPropertyName];
+            
+            NSString *groupIdentifier = nil;
+            NSString *groupPropertyName = identityParameters.groupPropertyName;
+            
+            if (groupPropertyName) {
+                [model valueForKey:groupPropertyName];
+            }
+
+            NSManagedObject *managedObject = [self findOrCreateObjectWithIdentityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+            [self updateManagedObject:managedObject usingModelObject:model error:error];
+            return managedObject;
         };
         
         BOOL (^serializeRelationship)(NSRelationshipDescription *) = ^(NSRelationshipDescription *relationshipDescription) {

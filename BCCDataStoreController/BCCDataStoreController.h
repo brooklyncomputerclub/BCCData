@@ -100,7 +100,7 @@ typedef enum {
 // Entity Deletion
 - (void)deleteObjects:(NSArray *)affectedObjects;
 - (void)deleteObjectsWithEntityName:(NSString *)entityName;
-- (void)deleteObjectsWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters importParameters:(BCCDataStoreControllerImportParameters *)importParameters;
+- (void)deleteObjectsWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifer;
 - (void)deleteObjectWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters identityValue:(id)identityValue groupIdentifier:(NSString *)groupIdentifier;
 
 // Query by Entity

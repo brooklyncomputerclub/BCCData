@@ -14,15 +14,15 @@
 
 @interface BCCDataStoreController (MantleSupport)
 
+// Entity Mass Creation
 
+- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock;
 
-- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock;
+- (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject withGroupIdentifier:(NSString * _Nullable)groupIdentifier;
 
-- (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters;
+- (NSManagedObject * _Nullable)findOrCreateObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject groupIdentifier:(NSString * _Nullable)groupIdentifier;
 
-- (NSManagedObject * _Nullable)findOrCreateObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject identityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters;
-
-
+// Query By Entity
 
 - (NSArray * _Nullable)mantleObjectsOfClass:(Class _Nonnull)modelClass forIdentityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters groupIdentifier:(NSString * _Nullable)groupIdentifier sortDescriptors:(NSArray * _Nullable)sortDescriptors;
 
@@ -35,6 +35,8 @@
 
 @required
 + (NSDictionary * _Nonnull)managedObjectKeysByPropertyKey;
+
++ (BCCDataStoreControllerIdentityParameters * _Nonnull)managedObjectIdentityParameters;
 
 @optional
 + (NSValueTransformer * _Nonnull)entityAttributeTransformerForKey:(NSString * _Nonnull)key;

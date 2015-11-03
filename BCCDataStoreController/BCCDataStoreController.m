@@ -970,13 +970,34 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     [moc deleteObject:affectedObject];
 }
 
+- (void)deleteObjectsWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifer
+{
+    NSString *entityName = identityParameters.entityName;
+    NSString *identityPropertyName = identityParameters.identityPropertyName;
+    NSString *groupPropertyName = identityParameters.groupPropertyName;
+    
+    if (!entityName || !identityPropertyName || !groupPropertyName || !groupIdentifer) {
+        return;
+    }
+    
+    NSArray *affectedObjects = [self performFetchOfEntityWithName:entityName byProperty:groupPropertyName valueList:@[groupIdentifer] sortDescriptors:nil error:NULL];
+    
+    for (NSManagedObject *currentObject in affectedObjects) {
+        NSManagedObjectContext *context = currentObject.managedObjectContext;
+        
+        id currentIDValue = [currentObject valueForKey:identityPropertyName];
+        id normalizedIDValue = [self normalizedIdentityValueForValue:currentIDValue];
+        [self removeCacheObjectForMOC:currentObject.managedObjectContext identityParameters:identityParameters identityValue:normalizedIDValue groupIdentifier:nil];
+        
+        [context deleteObject:currentObject];
+    }
+}
+
 - (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName valueList:(NSArray *)valueList
  {
      if (!entityName || identityPropertyName || valueList.count < 1) {
          return;
      }
-     
-     NSManagedObjectContext *context = [self currentMOC];
      
      NSArray *normalizedValueList = [self normalizedIdentityValueListForList:valueList];
      NSArray *objectList = [self performFetchOfEntityWithName:entityName byProperty:identityPropertyName valueList:normalizedValueList sortDescriptors:nil error:NULL];
@@ -987,9 +1008,11 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
      BCCDataStoreControllerIdentityParameters *identityParameters = [[BCCDataStoreControllerIdentityParameters alloc] initWithEntityName:entityName];
      
      for (NSManagedObject *currentObject in objectList) {
+         NSManagedObjectContext *context = currentObject.managedObjectContext;
+         
          id currentIDValue = [currentObject valueForKey:identityPropertyName];
          id normalizedIDValue = [self normalizedIdentityValueForValue:currentIDValue];
-         [self removeCacheObjectForMOC:context identityParameters:identityParameters identityValue:normalizedIDValue groupIdentifier:nil];
+         [self removeCacheObjectForMOC:currentObject.managedObjectContext identityParameters:identityParameters identityValue:normalizedIDValue groupIdentifier:nil];
          
          [context deleteObject:currentObject];
      }
@@ -1007,20 +1030,6 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     [self removeCacheObjectForMOC:context identityParameters:identityParameters identityValue:nil groupIdentifier:nil];
     
     NSArray *objectsToDelete = [self objectsForEntityWithName:entityName sortDescriptors:nil];
-    [objectsToDelete enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
-        NSManagedObject *currentObject = (NSManagedObject *)obj;
-        [context deleteObject:currentObject];
-    }];
-}
-
-- (void)deleteObjectsWithIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters importParameters:(BCCDataStoreControllerImportParameters *)importParameters
-{
-    NSManagedObjectContext *context = [self currentMOC];
-    NSString *groupIdentifier = importParameters.groupIdentifier;
-    
-    [self removeCacheObjectForMOC:context identityParameters:identityParameters identityValue:nil groupIdentifier:groupIdentifier];
-    
-    NSArray *objectsToDelete = [self objectsForIdentityParameters:identityParameters groupIdentifier:groupIdentifier sortDescriptors:nil];
     [objectsToDelete enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
         NSManagedObject *currentObject = (NSManagedObject *)obj;
         [context deleteObject:currentObject];
@@ -1493,20 +1502,20 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (NSArray *)createObjectsFromJSONArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
 {
-    NSString *entityName = identityParameters.entityName;
+    NSString *groupPropertyName = identityParameters.groupPropertyName;
     NSString *groupIdentifier = importParameters.groupIdentifier;
     NSString *dictionaryIdentityPropertyName = importParameters.dictionaryIdentityPropertyName;
     BOOL findExisting = importParameters.findExisting;
     BOOL deleteExisting = importParameters.deleteExisting;
     
-    if (!entityName || !dictionaryArray || dictionaryArray.count < 1) {
+    if (!dictionaryArray || dictionaryArray.count < 1) {
         return nil;
     }
     
     NSManagedObjectContext *managedObjectContext = [self currentMOC];
     
-    if (importParameters.deleteExisting) {
-        [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters];
+    if (importParameters.deleteExisting && groupPropertyName && groupIdentifier) {
+        [self deleteObjectsWithIdentityParameters:identityParameters groupIdentifier:groupIdentifier];
     }
     
     NSMutableArray *affectedObjects = [[NSMutableArray alloc] init];
@@ -1733,7 +1742,15 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     BCCDataStoreControllerImportParameters *importParameters = [[BCCDataStoreControllerImportParameters alloc] init];
     importParameters.groupIdentifier = groupIdentifier;
     
-    [self deleteObjectsWithIdentityParameters:identityParameters importParameters:importParameters];
+    NSArray *affectedObjects = [self performFetchOfEntityWithName:entityName usingPropertyList:@[identityPropertyName, groupPropertyName] valueList:@[identityValue, groupIdentifier] sortDescriptors:nil error:NULL];
+    
+    for (NSManagedObject *currentObject in affectedObjects) {
+        NSManagedObjectContext *context = currentObject.managedObjectContext;
+        
+        [self removeCacheObjectForMOC:context identityParameters:identityParameters identityValue:identityValue groupIdentifier:groupIdentifier];
+        
+        [context deleteObject:currentObject];
+    }
 }
 
 #pragma mark - Query by Entity
