@@ -34,13 +34,17 @@
 @protocol BCCDataStoreControllerMantleObjectSerializing <MTLModel>
 
 @required
+
 + (NSDictionary * _Nonnull)managedObjectKeysByPropertyKey;
 
 + (BCCDataStoreControllerIdentityParameters * _Nonnull)managedObjectIdentityParameters;
 
 @optional
+
 + (NSValueTransformer * _Nonnull)entityAttributeTransformerForKey:(NSString * _Nonnull)key;
 
 + (NSDictionary * _Nonnull)relationshipModelClassesByPropertyKey;
+
++ (Class _Nonnull)classForDeserializingManagedObject:(NSManagedObject * _Nonnull)managedObject;
 
 @end
