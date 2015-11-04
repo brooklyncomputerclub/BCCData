@@ -82,7 +82,7 @@
     NSString *groupIdentifier = importParameters.groupIdentifier;
     
     BOOL findExisting = importParameters.findExisting;
-    BOOL deleteExisting = (groupIdentifier != nil) && importParameters.deleteExisting;
+    BOOL deleteExisting = importParameters.deleteExisting;
     
     NSMutableArray *affectedObjects = [[NSMutableArray alloc] init];
     NSMutableSet *entityGroupsAlreadyDeleted = [[NSMutableSet alloc] init];
@@ -96,8 +96,14 @@
         }
         
         NSString *groupPropertyName = identityParameters.groupPropertyName;
-        if (![entityGroupsAlreadyDeleted containsObject:entityName] && deleteExisting && groupPropertyName) {
-            [self deleteObjectsWithIdentityParameters:identityParameters groupIdentifier:groupIdentifier];
+        
+        if (deleteExisting && ![entityGroupsAlreadyDeleted containsObject:entityName]) {
+            if (groupPropertyName) {
+                [self deleteObjectsWithIdentityParameters:identityParameters groupIdentifier:groupIdentifier];
+            } else {
+                [self deleteObjectsWithEntityName:entityName];
+            }
+            
             [entityGroupsAlreadyDeleted addObject:entityName];
         }
         
