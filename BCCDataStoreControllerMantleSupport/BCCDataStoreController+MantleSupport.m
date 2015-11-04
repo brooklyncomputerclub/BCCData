@@ -23,7 +23,6 @@
 
 @implementation BCCDataStoreController (MantleSupport)
 
-#pragma mark -
 #pragma mark - Entity Mass Creation
 
 - (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject withGroupIdentifier:(NSString * _Nullable)groupIdentifier
@@ -331,6 +330,11 @@
     Class modelClass = [model class];
     NSDictionary *managedObjectKeysByPropertyKey = [modelClass managedObjectKeysByPropertyKey];
     
+    NSDictionary *relationshipModelClassesByPropertyKey = nil;
+    if ([modelClass respondsToSelector:@selector(relationshipModelClassesByPropertyKey)]) {
+        relationshipModelClassesByPropertyKey = [modelClass relationshipModelClassesByPropertyKey];
+    }
+    
     NSEntityDescription *entity = managedObject.entity;
     NSAssert(entity != nil, @"%@ returned a nil +entity", managedObject);
     
@@ -372,6 +376,49 @@
             return setValueForKey(propertyKey, value);
         };
         
+        BOOL (^deserializeRelationship)(NSRelationshipDescription *) = ^(NSRelationshipDescription *relationshipDescription) {
+            
+            NSString *nestedClassName = relationshipModelClassesByPropertyKey[propertyKey];
+            if (!nestedClassName) {
+                return NO;
+            }
+            
+            Class nestedClass = NSClassFromString(nestedClassName);
+            
+            if (nestedClass == nil) {
+                [NSException raise:NSInvalidArgumentException format:@"No class specified for decoding relationship at key \"%@\" in managed object %@", managedObjectKey, managedObject];
+            }
+
+            if ([relationshipDescription isToMany]) {
+                id relationshipCollection = [managedObject valueForKey:managedObjectKey];
+                id models = [NSMutableArray arrayWithCapacity:[relationshipCollection count]];
+
+                for (NSManagedObject *nestedObject in relationshipCollection) {
+                    MTLModel *model = [[nestedClass alloc] init];
+                    [self updateMantleObject:model withManagedObject:nestedObject error:error];
+                    
+                    [models addObject:model];
+                }
+
+                if (models == nil) return NO;
+                
+                if (![relationshipDescription isOrdered]) models = [NSSet setWithArray:models];
+
+                return setValueForKey(propertyKey, models);
+            } else {
+                NSManagedObject *nestedObject = [managedObject valueForKey:managedObjectKey];
+                
+                if (nestedObject == nil) return YES;
+
+                MTLModel *model = [[nestedClass alloc] init];
+                [self updateMantleObject:model withManagedObject:nestedObject error:error];
+                
+                if (model == nil) return NO;
+                
+                return setValueForKey(propertyKey, model);
+            }
+        };
+        
         BOOL (^deserializeProperty)(NSPropertyDescription *) = ^(NSPropertyDescription *propertyDescription) {
             if (propertyDescription == nil) {
                 if (error != NULL) {
@@ -394,8 +441,7 @@
             if ([propertyClassName isEqual:@"NSAttributeDescription"]) {
                 return deserializeAttribute((id)propertyDescription);
             } else if ([propertyClassName isEqual:@"NSRelationshipDescription"]) {
-                return NO;
-                //return deserializeRelationship((id)propertyDescription);
+                return deserializeRelationship((id)propertyDescription);
             } else {
                 if (error != NULL) {
                     /*NSString *failureReason = [NSString stringWithFormat:NSLocalizedString(@"Property descriptions of class %@ are unsupported.", @""), propertyClassName];

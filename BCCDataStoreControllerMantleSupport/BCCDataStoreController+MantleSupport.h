@@ -41,4 +41,6 @@
 @optional
 + (NSValueTransformer * _Nonnull)entityAttributeTransformerForKey:(NSString * _Nonnull)key;
 
++ (NSDictionary * _Nonnull)relationshipModelClassesByPropertyKey;
+
 @end
