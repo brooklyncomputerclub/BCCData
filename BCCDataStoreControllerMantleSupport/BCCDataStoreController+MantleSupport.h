@@ -24,9 +24,9 @@
 
 // Query By Entity
 
-- (NSArray * _Nullable)mantleObjectsOfClass:(Class _Nonnull)modelClass forIdentityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters groupIdentifier:(NSString * _Nullable)groupIdentifier sortDescriptors:(NSArray * _Nullable)sortDescriptors;
+- (NSArray *_Nullable)mantleObjectsOfClass:(Class _Nonnull)modelClass forGroupIdentifier:(NSString *_Nullable)groupIdentifier sortDescriptors:(NSArray *_Nullable)sortDescriptors;
 
-- (NSArray * _Nullable)mantleObjectsOfClass:(Class _Nonnull)modelClass forIdentityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters groupIdentifier:(NSString * _Nullable)groupIdentifier filteredByProperty:(NSString * _Nullable)propertyName valueSet:(NSSet * _Nullable)valueSet sortDescriptors:(NSArray * _Nullable)sortDescriptors;
+- (NSArray *_Nullable)mantleObjectsOfClass:(Class _Nonnull)modelClass forGroupIdentifier:(NSString *_Nullable)groupIdentifier filteredByProperty:(NSString *_Nullable)propertyName valueSet:(NSSet *_Nullable)valueSet sortDescriptors:(NSArray *_Nullable)sortDescriptors;
 
 @end
 

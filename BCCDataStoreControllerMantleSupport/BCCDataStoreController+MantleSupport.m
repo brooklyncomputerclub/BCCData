@@ -147,13 +147,22 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
 #pragma mark - Query By Entity
 #pragma mark -
 
-- (NSArray * _Nullable)mantleObjectsOfClass:(Class _Nonnull)modelClass forIdentityParameters:(BCCDataStoreControllerIdentityParameters * _Nonnull)identityParameters groupIdentifier:(NSString * _Nullable)groupIdentifier sortDescriptors:(NSArray * _Nullable)sortDescriptors
+- (NSArray *_Nullable)mantleObjectsOfClass:(Class _Nonnull)modelClass forGroupIdentifier:(NSString *_Nullable)groupIdentifier sortDescriptors:(NSArray *_Nullable)sortDescriptors
 {
-    return [self mantleObjectsOfClass:modelClass forIdentityParameters:identityParameters groupIdentifier:groupIdentifier filteredByProperty:nil valueSet:nil sortDescriptors:sortDescriptors];
+    return [self mantleObjectsOfClass:modelClass forGroupIdentifier:groupIdentifier filteredByProperty:nil valueSet:nil sortDescriptors:sortDescriptors];
 }
 
-- (NSArray *)mantleObjectsOfClass:(Class)modelClass forIdentityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters groupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet sortDescriptors:(NSArray *)sortDescriptors
+- (NSArray *)mantleObjectsOfClass:(Class)modelClass forGroupIdentifier:(NSString *)groupIdentifier filteredByProperty:(NSString *)propertyName valueSet:(NSSet *)valueSet sortDescriptors:(NSArray *)sortDescriptors
 {
+    if (![modelClass conformsToProtocol:@protocol(BCCDataStoreControllerMantleObjectSerializing)]) {
+        return nil;
+    }
+    
+    BCCDataStoreControllerIdentityParameters *identityParameters = [modelClass managedObjectIdentityParameters];
+    if (!identityParameters) {
+        return nil;
+    }
+    
     NSArray *affectedObjects = [self objectsForIdentityParameters:identityParameters groupIdentifier:groupIdentifier filteredByProperty:propertyName valueSet:valueSet sortDescriptors:sortDescriptors];
     
     NSMutableArray *mantleObjects = [[NSMutableArray alloc] init];
@@ -161,7 +170,7 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
     CFMutableDictionaryRef processedObjects = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     if (processedObjects == NULL) return nil;
     
-    [affectedObjects enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+    [affectedObjects enumerateObjectsUsingBlock:^(id _Nonnull obj, NSUInteger idx, BOOL *_Nonnull stop) {
         MTLModel *model = [self mantleObjectOfClass:modelClass fromManagedObject:obj processedObjects:processedObjects error:NULL];
         [mantleObjects addObject:model];
     }];
@@ -330,9 +339,7 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
             }
         };
         
-        if (!serializeProperty(managedObjectProperties[managedObjectKey])) {
-            *stop = YES;
-        }
+        serializeProperty(managedObjectProperties[managedObjectKey]);
     }];
     
     if (error != NULL) {
@@ -522,7 +529,7 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
             }
         };
 
-        if (!deserializeProperty(managedObjectProperties[managedObjectKey])) return;
+        deserializeProperty(managedObjectProperties[managedObjectKey]);
     }
 }
 
