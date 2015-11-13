@@ -533,4 +533,44 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
     }
 }
 
+#pragma mark - Observation -
+
+- (void)addObserver:(id _Nonnull)observer action:(SEL _Nonnull)action forMantleObjectOfClass:(Class <BCCDataStoreControllerMantleObjectSerializing> _Nonnull )mantleObjectClass
+{
+    [self addObserver:observer action:action forMantleObjectOfClass:mantleObjectClass withPredicate:nil requiredChangedKeys:nil];
+}
+
+- (void)addObserver:(id _Nonnull)observer action:(SEL _Nonnull)action forMantleObjectOfClass:(Class <BCCDataStoreControllerMantleObjectSerializing> _Nonnull )mantleObjectClass withPredicate:(NSPredicate *_Nullable)predicate requiredChangedKeys:(NSArray * _Nullable)changedKeys
+{
+    BCCDataStoreControllerIdentityParameters *identityParameters = [mantleObjectClass managedObjectIdentityParameters];
+    NSString *entityName = identityParameters.entityName;
+    if (!entityName) {
+        NSParameterAssert(entityName != nil);
+    }
+    
+    [self addObserver:observer action:action forEntityName:entityName withPredicate:predicate requiredChangedKeys:changedKeys];
+}
+
+- (BOOL)hasObserver:(id _Nonnull)observer forMantleObjectOfClass:(Class <BCCDataStoreControllerMantleObjectSerializing> _Nonnull)mantleObjectClass
+{
+    BCCDataStoreControllerIdentityParameters *identityParameters = [mantleObjectClass managedObjectIdentityParameters];
+    NSString *entityName = identityParameters.entityName;
+    if (!entityName) {
+        NSParameterAssert(entityName != nil);
+    }
+    
+    return [self hasObserver:observer forEntityName:entityName];
+}
+
+- (void)removeObserver:(id _Nonnull)observer forMantleObjectOfClass:(Class <BCCDataStoreControllerMantleObjectSerializing> _Nonnull )mantleObjectClass
+{
+    BCCDataStoreControllerIdentityParameters *identityParameters = [mantleObjectClass managedObjectIdentityParameters];
+    NSString *entityName = identityParameters.entityName;
+    if (!entityName) {
+        NSParameterAssert(entityName != nil);
+    }
+    
+    [self removeObserver:observer forEntityName:entityName];
+}
+
 @end

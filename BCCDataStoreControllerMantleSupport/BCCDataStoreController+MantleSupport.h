@@ -28,6 +28,15 @@
 
 - (NSArray *_Nullable)mantleObjectsOfClass:(Class _Nonnull)modelClass forGroupIdentifier:(NSString *_Nullable)groupIdentifier filteredByProperty:(NSString *_Nullable)propertyName valueSet:(NSSet *_Nullable)valueSet sortDescriptors:(NSArray *_Nullable)sortDescriptors;
 
+// Observation
+
+- (void)addObserver:(id _Nonnull)observer action:(SEL _Nonnull)action forMantleObjectOfClass:(Class <BCCDataStoreControllerMantleObjectSerializing> _Nonnull )mantleObjectClass;
+- (void)addObserver:(id _Nonnull)observer action:(SEL _Nonnull)action forMantleObjectOfClass:(Class _Nonnull)mantleObjectClass withPredicate:(NSPredicate *_Nullable)predicate requiredChangedKeys:(NSArray * _Nullable)changedKeys;
+
+- (BOOL)hasObserver:(id _Nonnull)observer forMantleObjectOfClass:(Class <BCCDataStoreControllerMantleObjectSerializing> _Nonnull)mantleObjectClass;
+
+- (void)removeObserver:(id _Nonnull)observer forMantleObjectOfClass:(Class <BCCDataStoreControllerMantleObjectSerializing> _Nonnull )mantleObjectClass;
+
 @end
 
 
