@@ -56,6 +56,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 - (void)saveMOC:(NSManagedObjectContext *)managedObjectContext;
 
 // Change Notifications
+- (NSSet *)managedObjects:(NSSet *)managedObjects withUpdatedKeys:(NSSet *)updatedKeys matchingRequiredChangeKeys:(NSArray *)requiredChangeKeys;
 - (NSDictionary *)updatedEntityKeysForMOC:(NSManagedObjectContext *)managedObjectContext;
 - (void)notifyObserversForChangeNotification:(NSNotification *)changeNotification;
 
@@ -383,7 +384,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
         return;
     }
     
-    // Remove persistent store file
+    // Remove persistent store and journal files
     [[NSNotificationCenter defaultCenter] postNotificationName:BCCDataStoreControllerWillClearDatabaseNotification object:self];
 
     NSError *error = nil;
@@ -424,7 +425,8 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     }
     
     NSError *error = nil;
-    NSPersistentStore *persistentStore = [coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:storeURL options:@{NSSQLitePragmasOption: @{@"journal_mode": @"WAL"}} error:&error];
+    
+    NSPersistentStore *persistentStore = [coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:storeURL options:@{NSSQLitePragmasOption: @{@"journal_mode": @"WAL"}, NSMigratePersistentStoresAutomaticallyOption: @YES, NSInferMappingModelAutomaticallyOption: @YES} error:&error];
     if (!persistentStore) {
         NSLog(@"Error creating persistent store: %@", error);
         return nil;
@@ -488,9 +490,9 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 {
     [self.writeMOC performBlockAndWait:^{
         NSError *error = nil;
-        [self.writeMOC save:&error];
+        BOOL success = [self.writeMOC save:&error];
         
-        if (error) {
+        if (!success) {
             NSLog(@"BCCDataStoreController Write MOC Save Exception: %@", error);
             return;
         }
@@ -520,9 +522,9 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
         }
         
         NSError *error = nil;
-        [managedObjectContext save:&error];
+        BOOL success = [managedObjectContext save:&error];
         
-        if (error) {
+        if (!success) {
             NSLog(@"BCCDataStoreController MOC Save Exception: %@", error);
             return;
         }
@@ -1299,17 +1301,17 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 - (void)notifyObserversForChangeNotification:(NSNotification *)changeNotification
 {
-    NSManagedObjectContext *managedObjectContext = changeNotification.object;
+    NSManagedObjectContext *context = changeNotification.object;
     
     NSSet *insertedObjects = [changeNotification.userInfo objectForKey:NSInsertedObjectsKey];
     NSSet *updatedObjects = [changeNotification.userInfo objectForKey:NSUpdatedObjectsKey];
     NSSet *deletedObjects = [changeNotification.userInfo objectForKey:NSDeletedObjectsKey];
     
-    if (!managedObjectContext || (insertedObjects.count < 1 && updatedObjects.count < 1 && deletedObjects.count < 1)) {
+    if (!context || (insertedObjects.count < 1 && updatedObjects.count < 1 && deletedObjects.count < 1)) {
         return;
     }
     
-    NSDictionary *updatedKeysInfo = [managedObjectContext.userInfo objectForKey:BCCDataStoreControllerCurrentUpdatedKeysUserInfoKey];
+    NSDictionary *updatedKeysInfo = [context.userInfo objectForKey:BCCDataStoreControllerCurrentUpdatedKeysUserInfoKey];
     
     NSEnumerator *entityKeyEnumerator = [self.observerInfo keyEnumerator];
     NSMutableArray *safeKeyList = [[NSMutableArray alloc] init];
@@ -1366,7 +1368,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
             // and none of the predicate filtered updated object changes
             // match those, this is not a match
             BOOL changedKeysRequired = (currentRequiredChangedKeys.count > 0);
-            if (changedKeysRequired && (matchingUpdatedObjects.count < 1 || updatedKeysForCurrentEntity.count < 1)) {
+            if (changedKeysRequired && ((matchingInsertedObjects.count < 1 && matchingUpdatedObjects.count < 1) || updatedKeysForCurrentEntity.count < 1)) {
                 return;
             }
             
@@ -1374,33 +1376,22 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
             // predicate matched updated objects for ones
             // with changes matching the required keys
             if (changedKeysRequired) {
-                NSMutableSet *updatedObjectsMatchingChangedKeys = [[NSMutableSet alloc] init];
-                
-                for (NSManagedObject *currentUpdatedObject in [matchingUpdatedObjects allObjects]) {
-                    for (NSString *currentChangedKey in updatedKeysForCurrentEntity) {
-                        NSUInteger foundIndex = [currentRequiredChangedKeys indexOfObjectPassingTest:^BOOL(id obj, NSUInteger idx, BOOL *stop) {
-                            NSString *currentRequiredChangedKey = (NSString *)obj;
-                            if ([currentRequiredChangedKey isEqualToString:currentChangedKey]){
-                                *stop = YES;
-                                return YES;
-                            }
-                            
-                            return NO;
-                        }];
-                        
-                        if (foundIndex != NSNotFound) {
-                            [updatedObjectsMatchingChangedKeys addObject:currentUpdatedObject];
-                        }
-                    }
-                }
+                NSSet *updatedObjectsMatchingChangedKeys = [self managedObjects:matchingUpdatedObjects withUpdatedKeys:updatedKeysForCurrentEntity matchingRequiredChangeKeys:currentRequiredChangedKeys];
+                NSSet *insertedObjectsMatchingChangedKeys = [self managedObjects:matchingInsertedObjects withUpdatedKeys:updatedKeysForCurrentEntity matchingRequiredChangeKeys:currentRequiredChangedKeys];
                 
                 // If required changed keys were specified
                 // but none were found, this target/action
                 // is not a match
-                if (updatedObjectsMatchingChangedKeys.count) {
-                    matchingUpdatedObjects = updatedObjectsMatchingChangedKeys;
-                } else {
+                if (insertedObjectsMatchingChangedKeys.count == 0 && updatedObjectsMatchingChangedKeys.count == 0) {
                     return;
+                }
+                
+                if (insertedObjectsMatchingChangedKeys.count > 0) {
+                    matchingInsertedObjects = insertedObjectsMatchingChangedKeys;
+                }
+                
+                if (updatedObjectsMatchingChangedKeys.count > 0) {
+                    matchingUpdatedObjects = updatedObjectsMatchingChangedKeys;
                 }
             }
             
@@ -1424,35 +1415,62 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
             });
         }];
         
-        [managedObjectContext.userInfo removeObjectForKey:BCCDataStoreControllerCurrentUpdatedKeysUserInfoKey];
+        [context.userInfo removeObjectForKey:BCCDataStoreControllerCurrentUpdatedKeysUserInfoKey];
     }
 }
 
-- (NSDictionary *)updatedEntityKeysForMOC:(NSManagedObjectContext *)managedObjectContext
+- (NSSet *)managedObjects:(NSSet *)managedObjects withUpdatedKeys:(NSSet *)updatedKeys matchingRequiredChangeKeys:(NSArray *)requiredChangeKeys
 {
-    if (!managedObjectContext) {
+    NSMutableSet *managedObjectMatchingChangeKeys = [[NSMutableSet alloc] init];
+    
+    for (NSManagedObject *currentUpdatedObject in [managedObjects allObjects]) {
+        for (NSString *currentChangedKey in updatedKeys) {
+            NSUInteger foundIndex = [requiredChangeKeys indexOfObjectPassingTest:^BOOL(id obj, NSUInteger idx, BOOL *stop) {
+                NSString *currentRequiredChangedKey = (NSString *)obj;
+                if ([currentRequiredChangedKey isEqualToString:currentChangedKey]){
+                    *stop = YES;
+                    return YES;
+                }
+                
+                return NO;
+            }];
+            
+            if (foundIndex != NSNotFound) {
+                [managedObjectMatchingChangeKeys addObject:currentUpdatedObject];
+            }
+        }
+    }
+    
+    return managedObjectMatchingChangeKeys;
+}
+
+- (NSDictionary *)updatedEntityKeysForMOC:(NSManagedObjectContext *)context
+{
+    if (!context) {
         return nil;
     }
     
-    NSSet *updatedObjects = managedObjectContext.updatedObjects;
-    if (updatedObjects.count < 1) {
+    NSMutableSet *insertedOrUpdateObjects = [NSMutableSet new];
+    [insertedOrUpdateObjects addObjectsFromArray:context.insertedObjects.allObjects];
+    [insertedOrUpdateObjects addObjectsFromArray:context.updatedObjects.allObjects];
+    
+    if (!insertedOrUpdateObjects.count) {
         return nil;
     }
-    
     
     NSMutableDictionary *changedEntitiesDictionary = [[NSMutableDictionary alloc] init];
-    for (NSManagedObject *currentUpdatedObject in updatedObjects) {
+    for (NSManagedObject *currentUpdatedObject in insertedOrUpdateObjects) {
         NSString *currentEntityName = currentUpdatedObject.entity.name;
         
-        NSMutableSet *changedKeysListForEntity = [changedEntitiesDictionary objectForKey:currentEntityName];
-        if (!changedKeysListForEntity) {
-            changedKeysListForEntity = [[NSMutableSet alloc] init];
-            [changedEntitiesDictionary setObject:changedKeysListForEntity forKey:currentEntityName];
-        }
-        
-        NSDictionary *currentObjectChangedValues = [currentUpdatedObject committedValuesForKeys:nil];
+        NSDictionary *currentObjectChangedValues = [currentUpdatedObject changedValues];
         NSEnumerator *changedKeysEnumerator = [currentObjectChangedValues keyEnumerator];
         for (NSString *currentChangedKey in changedKeysEnumerator) {
+            NSMutableSet *changedKeysListForEntity = [changedEntitiesDictionary objectForKey:currentEntityName];
+            if (!changedKeysListForEntity) {
+                changedKeysListForEntity = [[NSMutableSet alloc] init];
+                [changedEntitiesDictionary setObject:changedKeysListForEntity forKey:currentEntityName];
+            }
+            
             [changedKeysListForEntity addObject:currentChangedKey];
         }
     }
@@ -1646,6 +1664,11 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     _deletedObjects = dictionary[NSDeletedObjectsKey];
     
     return self;
+}
+
+- (NSString *)description
+{
+    return [[super description] stringByAppendingFormat:@"\nUpdated Objects: %lu\nInserted Objects: %lu\nDeleted Objects: %lu", (unsigned long)_updatedObjects.count, (unsigned long)_insertedObjects.count, (unsigned long)_deletedObjects.count];
 }
 
 @end
