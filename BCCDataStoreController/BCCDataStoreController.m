@@ -1523,7 +1523,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 
 @implementation BCCDataStoreController (JSONSupport)
 
-- (NSArray *)createObjectsFromJSONArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock
+- (NSArray *)createObjectsFromJSONArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters
 {
     NSString *groupPropertyName = identityParameters.groupPropertyName;
     NSString *groupIdentifier = importParameters.groupIdentifier;
@@ -1562,8 +1562,8 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
             return;
         }
         
-        if (postCreateBlock) {
-            postCreateBlock(affectedObject, currentDictionary, idx, managedObjectContext);
+        if (importParameters.postCreateBlock) {
+            importParameters.postCreateBlock(affectedObject, currentDictionary, idx, managedObjectContext);
         }
         
         [affectedObjects addObject:affectedObject];
@@ -1759,7 +1759,9 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     importParameters.dictionaryIdentityPropertyName = dictionaryIdentityPropertyName;
     importParameters.findExisting = findExisting;
     
-    return [self createObjectsFromJSONArray:dictionaryArray usingImportParameters:importParameters identityParameters:identityParameters postCreateBlock:postCreateBlock];
+    importParameters.postCreateBlock = postCreateBlock;
+    
+    return [self createObjectsFromJSONArray:dictionaryArray usingImportParameters:importParameters identityParameters:identityParameters];
 }
 
 - (void)deleteObjectsWithEntityName:(NSString *)entityName identityProperty:(NSString *)identityPropertyName identityValue:(id)identityValue groupPropertyName:(NSString *)groupPropertyName groupIdentifier:(NSString *)groupIdentifier

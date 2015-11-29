@@ -82,7 +82,7 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
     return affectedObject;
 }
 
-- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock
+- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters
 {
     if (mantleObjectArray.count < 1) {
         return nil;
@@ -134,8 +134,8 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
             [affectedObject setValue:groupIdentifier forKey:groupPropertyName];
         }
         
-        if (postCreateBlock) {
-            postCreateBlock(affectedObject, obj, idx, managedObjectContext);
+        if (importParameters.postCreateBlock) {
+            importParameters.postCreateBlock(affectedObject, obj, idx, managedObjectContext);
         }
         
         [affectedObjects addObject:affectedObject];
@@ -213,7 +213,12 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
             // double-free or leak the old or new values).
             __autoreleasing id transformedValue = value;
             
-            NSValueTransformer *transformer = [modelClass entityAttributeTransformerForKey:propertyKey];
+            NSValueTransformer *transformer = nil;
+            
+            if ([modelClass instancesRespondToSelector:@selector(entityAttributeTransformerForKey:)]) {
+                transformer = [modelClass entityAttributeTransformerForKey:propertyKey];
+            }
+            
             if ([transformer.class allowsReverseTransformation]) {
                 if ([transformer respondsToSelector:@selector(reverseTransformedValue:success:error:)]) {
                     id<MTLTransformerErrorHandling> errorHandlingTransformer = (id)transformer;
@@ -434,7 +439,11 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
         BOOL (^deserializeAttribute)(NSAttributeDescription *) = ^(NSAttributeDescription *attributeDescription) {
             id value = [managedObject valueForKey:managedObjectKey];
             
-            NSValueTransformer *transformer = [modelClass entityAttributeTransformerForKey:propertyKey];
+            NSValueTransformer *transformer = nil;
+            
+            if ([modelClass instancesRespondToSelector:@selector(entityAttributeTransformerForKey:)]) {
+                transformer = [modelClass entityAttributeTransformerForKey:propertyKey];
+            }
             
             if ([transformer respondsToSelector:@selector(transformedValue:success:error:)]) {
                 id<MTLTransformerErrorHandling> errorHandlingTransformer = (id)transformer;

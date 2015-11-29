@@ -148,7 +148,7 @@ typedef enum {
 @interface BCCDataStoreController (JSONSupport)
 
 // Entity Mass Creation
-- (NSArray *)createObjectsFromJSONArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock)postCreateBlock;
+- (NSArray *)createObjectsFromJSONArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters;
 
 @end
 
@@ -201,7 +201,7 @@ typedef enum {
 
 @property (strong, nonatomic) NSString *groupIdentifier;
 
-@property (copy) BCCDataStoreControllerWorkBlock postCreateBlock;
+@property (copy) BCCDataStoreControllerPostCreateBlock postCreateBlock;
 
 @end
 

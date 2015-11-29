@@ -1,6 +1,5 @@
 //
 //  BCCDataStoreController+MantleSupport.h
-//  Toilets
 //
 //  Created by Laurence Andersen on 10/28/15.
 //  Copyright © 2015 Brooklyn Computer Club. All rights reserved.
@@ -8,6 +7,7 @@
 
 #import <Foundation/Foundation.h>
 #import <Mantle/Mantle.h>
+#import "BCCDataStoreController.h"
 
 @protocol BCCDataStoreControllerMantleObjectSerializing;
 
@@ -16,7 +16,7 @@
 
 // Entity Mass Creation
 
-- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters postCreateBlock:(BCCDataStoreControllerPostCreateBlock _Nullable)postCreateBlock;
+- (NSArray * _Nullable)createObjectsFromMantleObjectArray:(NSArray <MTLModel *> * _Nonnull)mantleObjectArray usingImportParameters:(BCCDataStoreControllerImportParameters * _Nonnull)importParameters;
 
 - (NSManagedObject * _Nullable)createAndInsertObjectWithMantleObject:(MTLModel <BCCDataStoreControllerMantleObjectSerializing> * _Nonnull)mantleObject withGroupIdentifier:(NSString * _Nullable)groupIdentifier;
 
