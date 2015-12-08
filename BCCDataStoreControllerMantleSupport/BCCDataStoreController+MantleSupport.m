@@ -134,6 +134,11 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
             [affectedObject setValue:groupIdentifier forKey:groupPropertyName];
         }
         
+        NSString *listIndexPropertyName = identityParameters.listIndexPropertyName;
+        if (listIndexPropertyName) {
+            [affectedObject setValue:@(idx) forKey:listIndexPropertyName];
+        }
+        
         if (importParameters.postCreateBlock) {
             importParameters.postCreateBlock(affectedObject, obj, idx, managedObjectContext);
         }

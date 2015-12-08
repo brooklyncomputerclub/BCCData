@@ -181,6 +181,7 @@ typedef enum {
 @property (strong, nonatomic) NSString *entityName;
 @property (strong, nonatomic) NSString *identityPropertyName;
 @property (strong, nonatomic) NSString *groupPropertyName;
+@property (strong, nonatomic) NSString *listIndexPropertyName;
 
 // Class Methods
 + (instancetype)identityParametersWithEntityName:(NSString *)entityName identityPropertyName:(NSString *)identityPropertyName;

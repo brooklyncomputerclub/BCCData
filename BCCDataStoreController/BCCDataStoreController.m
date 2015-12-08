@@ -1526,6 +1526,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
 - (NSArray *)createObjectsFromJSONArray:(NSArray *)dictionaryArray usingImportParameters:(BCCDataStoreControllerImportParameters *)importParameters identityParameters:(BCCDataStoreControllerIdentityParameters *)identityParameters
 {
     NSString *groupPropertyName = identityParameters.groupPropertyName;
+    NSString *listIndexPropertyName = identityParameters.listIndexPropertyName;
     NSString *groupIdentifier = importParameters.groupIdentifier;
     NSString *dictionaryIdentityPropertyName = importParameters.dictionaryIdentityPropertyName;
     BOOL findExisting = importParameters.findExisting;
@@ -1560,6 +1561,10 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
         
         if (!affectedObject) {
             return;
+        }
+        
+        if (listIndexPropertyName) {
+            [affectedObject setValue:@(idx) forKey:listIndexPropertyName];
         }
         
         if (importParameters.postCreateBlock) {
