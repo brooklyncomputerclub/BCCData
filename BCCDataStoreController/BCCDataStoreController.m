@@ -365,7 +365,7 @@ NSString *BCCDataStoreControllerDidClearIncompatibleDatabaseNotification = @"BCC
     }
     
     if (_backgroundMOC) {
-        //[self.backgroundMOC performBlockAndWait:^{ }];
+        [self.backgroundMOC performBlockAndWait:^{ }];
         _backgroundMOC = nil;
     }
     
