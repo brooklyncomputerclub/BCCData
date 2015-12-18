@@ -543,7 +543,8 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
 
 - (BCCPersistentCacheItem *)_findOrCreateCacheItemForKey:(NSString *)inKey;
 {
-    BCCPersistentCacheItem *item = (BCCPersistentCacheItem *)[self findOrCreateObjectWithEntityName:BCCPersistentCacheItemEntityName identityProperty:BCCPersistentCacheItemCacheKeyModelKey identityValue:inKey groupPropertyName:nil groupIdentifier:nil];
+    BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:BCCPersistentCacheItemEntityName identityPropertyName:BCCPersistentCacheItemCacheKeyModelKey];
+    BCCPersistentCacheItem *item = (BCCPersistentCacheItem *)[self findOrCreateObjectWithIdentityParameters:identityParameters identityValue:inKey groupIdentifier:nil];
     
     return item;
 }
