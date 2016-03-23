@@ -7,36 +7,67 @@
 
 #import "BCCPersistentCache.h"
 #import "NSFileManager+BCCAdditions.h"
-#import "NSManagedObject+BCCAdditions.h"
 #import "NSString+BCCAdditions.h"
+
+#import <sqlite3.h>
+
+
+@class BCCWorkerQueue;
+@class BCCWorkerQueueParameters;
+
+//BCCWorkerQueue
+
+typedef enum {
+    BCCWorkerQueueExecutionStyleMainQueueAndWait,
+    BCCWorkerQueueExecutionStyleMainQueue,
+    BCCWorkerQueueExecutionStyleBackgroundQueueAndWait,
+    BCCWorkerQueueExecutionStyleBackgroundQueue
+} BCCWorkerQueueExecutionStyle;
+
+typedef void (^BCCWorkerQueueBlock)(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *parameters);
+
+@interface BCCWorkerQueueParameters : NSObject
+
+@property (nonatomic) BCCWorkerQueueExecutionStyle workExecutionStyle;
+@property (nonatomic) BOOL shouldSave;
+@property (nonatomic) NSTimeInterval executionDelay;
+
+@property (copy) BCCWorkerQueueBlock workBlock;
+@property (copy) BCCWorkerQueueBlock postSaveBlock;
+
+@end
+
+@interface BCCWorkerQueue : NSObject
+
+@property (copy) BCCWorkerQueueBlock saveBlock;
+
+- (instancetype)initWithIdentifier:(NSString *)identifier;
+- (void)performWorkWithParameters:(BCCWorkerQueueParameters *)workParameters;
+
+@end
+
 
 
 // Constants
-NSString *BCCPersistentCacheMetadataModelName = @"BCCPersistentCache";
-
 NSString *BCCPersistentCacheFileCacheSubdirectoryName = @"Data";
 
-NSString *BCCPersistentCacheItemEntityName = @"PersistentCacheItem";
+NSString *BCCPersistentCacheItemUpdatedNotification = @"BCCPersistentCacheItemUpdatedNotification";
 NSString *BCCPersistentCacheItemCacheKeyModelKey = @"key";
 NSString *BCCPersistentCacheItemAddedTimestampModelKey = @"addedTimestamp";
 NSString *BCCPersistentCacheItemFileSizeModelKey = @"fileSize";
 NSString *BCCPersistentCacheItemDataModelKey = @"data";
 
-NSString *BCCPersistentCacheItemUpdatedNotification = @"BCCPersistentCacheItemUpdatedNotification";
-NSString *BCCPersistentCacheItemUserInfoItemKey = @"item";
-NSString *BCCPersistentCacheItemUserInfoDataKey = @"data";
-
-const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520;
-
 // 2MB      2097152
 // 10 MB    10485760
 // 20 MB    20971520;
 
+const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 20971520;
 
-@interface BCCPersistentCacheItem : NSManagedObject
+
+@interface BCCPersistentCacheItem : NSObject
 
 @property (strong, nonatomic) NSString *key;
-@property (strong, nonatomic) NSString *fileName;
+@property (strong, nonatomic) NSString *filePath;
 @property (strong, nonatomic) NSDate *addedTimestamp;
 @property (strong, nonatomic) NSDate *updatedTimestamp;
 @property (strong, nonatomic) NSDictionary *attributes;
@@ -52,41 +83,41 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
 
 @interface BCCPersistentCache ()
 
-@property (strong, nonatomic) NSString *cacheName;
+@property (strong, nonatomic) NSString *identifier;
+
 @property (strong, nonatomic) NSCache *memoryCache;
+
+@property (strong, nonatomic) NSString *rootDirectory;
 @property (strong, nonatomic) NSString *fileCachePath;
 @property (nonatomic) BOOL needsCacheTruncation;
 
-+ (NSString *)defaultRootDirectoryForIdentifier:(NSString *)inIdentifier rootPath:(NSString *)rootPath;
+@property (nonatomic) sqlite3 *databaseConnection;
+@property (nonatomic) sqlite3_stmt *findCacheItemByKeyStatement;
+
+@property (strong, nonatomic) BCCWorkerQueue *workerQueue;
+
++ (NSString *)defaultRootDirectoryForIdentifier:(NSString *)identifier rootPath:(NSString *)rootPath;
 
 // Cache Items
-- (BCCPersistentCacheItem *)cacheItemForKey:(NSString *)inKey;
+- (BCCPersistentCacheItem *)cacheItemForKey:(NSString *)key;
 - (void)removeCacheItem:(BCCPersistentCacheItem *)inCacheItem;
 
 // Private Methods
-- (void)setFileCacheData:(NSData *)inData forKey:(NSString *)inKey withAttributes:(NSDictionary *)attributes didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
-- (void)_updateFileCachePath;
-- (NSString *)_fileCachePathForKey:(NSString *)inKey;
-- (NSString *)_fileCachePathForName:(NSString *)inFileName;
-- (void)_clearFileCache;
-- (void)_clearCacheItemsToFitMaxFileCacheSize;
-- (void)_clearCacheItemsOfSize:(unsigned long long)inSize;
-- (void)_sendCacheItemUpdatedNotificationForItem:(BCCPersistentCacheItem *)updatedItem data:(NSData *)inData;
-
-// Private Core Data Methods
-- (BCCPersistentCacheItem *)_findOrCreateCacheItemForKey:(NSString *)inKey;
+- (void)setFileCacheData:(NSData *)data forKey:(NSString *)key withAttributes:(NSDictionary *)attributes didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
+- (NSString *)fileCachePathForKey:(NSString *)key;
+- (void)clearFileCache;
+- (void)clearCacheItemsToFitMaxFileCacheSize;
+- (void)clearCacheItemsOfSize:(unsigned long long)size;
+- (void)sendCacheItemUpdatedNotificationForItem:(BCCPersistentCacheItem *)updatedItem data:(NSData *)data;
 
 @end
 
 
+#pragma mark - BCCPersistentCache
+
 @implementation BCCPersistentCache
 
-#pragma mark Class Methods
-
-+ (NSString *)metadataModelPath
-{
-    return [[NSBundle mainBundle] pathForResource:BCCPersistentCacheMetadataModelName ofType:@"momd"];
-}
+#pragma mark - Class Methods
 
 + (NSString *)defaultRootDirectoryForIdentifier:(NSString *)inIdentifier rootPath:(NSString *)rootPath
 {
@@ -111,53 +142,70 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     return path;
 }
 
-#pragma mark Initialization
+#pragma mark - Initialization
 
-- (id)initWithIdentifier:(NSString *)inIdentifier;
+- (id)initWithIdentifier:(NSString *)identifier
 {
-    if (!(self = [self initWithIdentifier:inIdentifier rootDirectory:nil])) {
+    if (!(self = [self initWithIdentifier:identifier rootDirectory:nil])) {
         return nil;
     }
     
     return self;
 }
 
-- (id)initWithIdentifier:(NSString *)inIdentifier rootDirectory:(NSString *)inRootPath;
+- (id)initWithIdentifier:(NSString *)identifier rootDirectory:(NSString *)rootDirectory
 {
-    if (!(self = [super initWithIdentifier:inIdentifier modelPath:[BCCPersistentCache metadataModelPath] rootDirectory:[BCCPersistentCache defaultRootDirectoryForIdentifier:inIdentifier rootPath:inRootPath]])) {
+    self = [super init];
+    if (!self) {
         return nil;
     }
     
-    [self _updateFileCachePath];
+    _identifier = identifier;
+    
+    _rootDirectory = rootDirectory ? rootDirectory : [BCCPersistentCache defaultRootDirectoryForIdentifier:identifier rootPath:nil];
     
     _usesMemoryCache = YES;
     
-    _maximumFileCacheSize = STPersistentCacheDefaultMaximumFileCacheSize;
+    _maximumFileCacheSize = BCCPersistentCacheDefaultMaximumFileCacheSize;
     
     _memoryCache = [[NSCache alloc] init];
     _memoryCache.delegate = self;
+    
+    _databaseConnection = NULL;
+    
+    [self openDatabaseConnection];
+    [self findCacheItemForKey:@"test"];
     
     return self;
 }
 
 - (void)dealloc;
 {
+    int err = sqlite3_finalize(_findCacheItemByKeyStatement);
+    err = sqlite3_close(_databaseConnection);
+    
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
-#pragma mark Accessors
+#pragma mark - Accessors
 
-- (void)setMaximumMemoryCacheSize:(NSUInteger)maximumMemoryCacheSize;
+- (void)setRootDirectory:(NSString *)rootDirectory
+{
+    _rootDirectory = rootDirectory;
+    _fileCachePath = [rootDirectory stringByAppendingPathComponent:BCCPersistentCacheFileCacheSubdirectoryName];
+}
+
+- (void)setMaximumMemoryCacheSize:(NSUInteger)maximumMemoryCacheSize
 {
     self.memoryCache.totalCostLimit = maximumMemoryCacheSize;
 }
 
-- (NSUInteger)maximumMemoryCacheSize;
+- (NSUInteger)maximumMemoryCacheSize
 {
     return self.memoryCache.totalCostLimit;
 }
 
-- (void)setMaximumFileCacheSize:(NSUInteger)maximumFileCacheSize;
+- (void)setMaximumFileCacheSize:(NSUInteger)maximumFileCacheSize
 {
     _maximumFileCacheSize = maximumFileCacheSize;
     self.needsCacheTruncation = YES;
@@ -165,39 +213,39 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
 
 - (NSUInteger)totalFileCacheSize;
 {
-    if (!self.fileCachePath.length) {
+    if (!self.fileCachePath) {
         return 0;
     }
     
     return (NSUInteger)[[NSFileManager defaultManager] BCC_fileSizeAtPath:self.fileCachePath];
 }
 
-- (void)setNeedsCacheTruncation:(BOOL)inNeedsCacheTruncation;
+- (void)setNeedsCacheTruncation:(BOOL)needsCacheTruncation
 {
     // If we're not already set as needing cache truncation, we don't need
     // to kick off another truncation job.
-    BOOL shouldStartDelayedTrunctation = !self.needsCacheTruncation && inNeedsCacheTruncation;
+    BOOL shouldStartDelayedTrunctation = !self.needsCacheTruncation && needsCacheTruncation;
     
-    _needsCacheTruncation = inNeedsCacheTruncation;
+    _needsCacheTruncation = needsCacheTruncation;
     
     if (shouldStartDelayedTrunctation) {
         // This is designed to ensure that truncation jobs run no more than
         // once every 2 seconds, and only if something has actually been
         // added to the cache.
 
-        BCCDataStoreControllerWorkBlock truncateCacheBlock = ^(BCCDataStoreController *dataStoreController, NSManagedObjectContext *context, BCCDataStoreControllerWorkParameters *workParameters) {
+        BCCWorkerQueueBlock truncateCacheBlock = ^(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *workParameters) {
             // If we were set to no longer need cache truncation during the
             // delay, cancel the truncation job
             if (!self.needsCacheTruncation) {
                 return;
             }
             
-            [self _clearCacheItemsToFitMaxFileCacheSize];
+            [self clearCacheItemsToFitMaxFileCacheSize];
             
             _needsCacheTruncation = NO;
         };
 
-        [self performBlockOnBackgroundMOC:truncateCacheBlock afterDelay:2.0];
+        [self performBlockOnBackgroundQueue:truncateCacheBlock afterDelay:2.0];
     }
 }
 
@@ -210,14 +258,14 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     }
 }
 
-#pragma mark NSCacheDelegate
+#pragma mark - NSCacheDelegate
 
-- (void)cache:(NSCache *)cache willEvictObject:(id)obj;
+- (void)cache:(NSCache *)cache willEvictObject:(id)obj
 {
-    //NSLog(@"Memory cache evicting object.");
+    NSLog(@"Memory cache evicting object.");
 }
 
-#pragma mark Public Methods
+#pragma mark - Public Methods
 
 - (void)setCacheData:(NSData *)inData forKey:(NSString *)inKey;
 {
@@ -235,7 +283,7 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
         return;
     }
     
-    BCCDataStoreControllerWorkBlock setDataBlock = ^(BCCDataStoreController *dataStoreController, NSManagedObjectContext *context, BCCDataStoreControllerWorkParameters *workParameters) {
+    BCCWorkerQueueBlock setDataBlock = ^(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *workParameters) {
         // Add the data to the memory cache
         if (self.usesMemoryCache) {
             [self.memoryCache setObject:inData forKey:inKey cost:[inData length]];
@@ -245,9 +293,9 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     };
 
     if (inBackground) {
-        [self performBlockOnBackgroundMOC:setDataBlock];
+        [self performBlockOnBackgroundQueue:setDataBlock];
     } else {
-        [self performBlockOnMainMOCAndWait:setDataBlock];
+        [self performBlockOnMainQueueAndWait:setDataBlock];
     }
 }
 
@@ -258,7 +306,7 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     }
     
     // Add the data to the file cache (should overwrite)
-    NSString *filePath = [self _fileCachePathForKey:inKey];
+    NSString *filePath = [self fileCachePathForKey:inKey];
     if (![[NSFileManager defaultManager] fileExistsAtPath:self.fileCachePath]) {
         [[NSFileManager defaultManager] BCC_recursivelyCreatePath:self.fileCachePath];
     }
@@ -266,7 +314,7 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     [inData writeToFile:filePath atomically:NO];
     
     // Create a cache item or update the existing one
-    BCCPersistentCacheItem *item = [self _findOrCreateCacheItemForKey:inKey];
+    BCCPersistentCacheItem *item = [self findOrCreateCacheItemForKey:inKey];
     [item initializeWithData:inData forKey:inKey withAttributes:attributes];
     
     if (didPersistBlock) {
@@ -276,24 +324,24 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     self.needsCacheTruncation = YES;
 }
 
-- (void)addCacheDataFromFileAtPath:(NSString *)inPath forKey:(NSString *)inKey;
+- (void)addCacheDataFromFileAtPath:(NSString *)path forKey:(NSString *)key
 {
-    [self addCacheDataFromFileAtPath:inPath forKey:inKey inBackground:NO didPersistBlock:NULL];
+    [self addCacheDataFromFileAtPath:path forKey:key inBackground:NO didPersistBlock:NULL];
 }
 
-- (void)addCacheDataFromFileAtPath:(NSString *)inPath forKey:(NSString *)inKey inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
+- (void)addCacheDataFromFileAtPath:(NSString *)inPath forKey:(NSString *)inKey inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock
 {
     [self addCacheDataFromFileAtPath:inPath forKey:inKey withAttributes:nil inBackground:inBackground didPersistBlock:didPersistBlock];
 }
 
-- (void)addCacheDataFromFileAtPath:(NSString *)inPath forKey:(NSString *)inKey withAttributes:(NSDictionary *)attributes inBackground:(BOOL)inBackground  didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
+- (void)addCacheDataFromFileAtPath:(NSString *)path forKey:(NSString *)key withAttributes:(NSDictionary *)attributes inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock
 {
-    if (!inKey.length || !inPath.length) {
+    if (!key || !path) {
         return;
     }
     
-    BCCDataStoreControllerWorkBlock setDataBlock = ^(BCCDataStoreController *dataStoreController, NSManagedObjectContext *context, BCCDataStoreControllerWorkParameters *workParameters) {
-        if (![[NSFileManager defaultManager] fileExistsAtPath:inPath]) {
+    BCCWorkerQueueBlock setDataBlock = ^(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *workParameters) {
+        if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
             return;
         }
         
@@ -301,19 +349,17 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
             [[NSFileManager defaultManager] BCC_recursivelyCreatePath:self.fileCachePath];
         }
 
-        NSString *filePath = [self _fileCachePathForKey:inKey];
+        NSString *filePath = [self fileCachePathForKey:key];
         NSError *moveError;
-        BOOL success = [[NSFileManager defaultManager] moveItemAtPath:inPath toPath:filePath error:&moveError];
+        BOOL success = [[NSFileManager defaultManager] moveItemAtPath:path toPath:filePath error:&moveError];
         if (!success) {
-            NSLog(@"Unable to add file at path %@ to cache due to error: %@", inPath, moveError);
+            NSLog(@"Unable to add file at path %@ to cache due to error: %@", path, moveError);
             return;
         }
         
         // Create a cache item or update the existing one
-        BCCPersistentCacheItem *item = [self _findOrCreateCacheItemForKey:inKey];
-        [item initializeWithPath:inPath forKey:inKey withAttributes:nil];
-        
-        [self saveCurrentMOC];
+        BCCPersistentCacheItem *item = [self findOrCreateCacheItemForKey:key];
+        [item initializeWithPath:path forKey:key withAttributes:attributes];
         
         if (didPersistBlock) {
             dispatch_async(dispatch_get_main_queue(), didPersistBlock);
@@ -323,33 +369,33 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     };
     
     if (inBackground) {
-        [self performBlockOnBackgroundMOC:setDataBlock];
+        [self performBlockOnBackgroundQueue:setDataBlock];
     } else {
-        [self performBlockOnMainMOCAndWait:setDataBlock];
+        [self performBlockOnMainQueueAndWait:setDataBlock];
     }
 }
 
-- (void)removeCacheDataForKey:(NSString *)inKey;
+- (void)removeCacheDataForKey:(NSString *)key
 {
-    if (!inKey.length) {
+    if (!key.length) {
         return;
     }
     
-    [self performBlockOnMainMOC:^(BCCDataStoreController *dataStoreController, NSManagedObjectContext *context, BCCDataStoreControllerWorkParameters *workParameters) {
-        BCCPersistentCacheItem *cacheItem = [self cacheItemForKey:inKey];
+    [self performBlockOnMainQueue:^(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *workParameters) {
+        BCCPersistentCacheItem *cacheItem = [self cacheItemForKey:key];
         if (cacheItem) {
             [self removeCacheItem:cacheItem];
         }
     }];
 }
 
-- (void)removeCacheItem:(BCCPersistentCacheItem *)inCacheItem;
+- (void)removeCacheItem:(BCCPersistentCacheItem *)cacheItem
 {
-    if (!inCacheItem) {
+    if (!cacheItem) {
         return;
     }
     
-    NSString *key = inCacheItem.key;
+    NSString *key = cacheItem.key;
     
     // Remove the data from the memory cache
     if (self.usesMemoryCache) {
@@ -357,72 +403,58 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     }
     
     // Remove the data from the file cache
-    NSString *filePath = [self _fileCachePathForKey:key];
+    NSString *filePath = [self fileCachePathForKey:key];
     [[NSFileManager defaultManager] removeItemAtPath:filePath error:NULL];
         
     // Delete the cache item
-    [[self currentMOC] deleteObject:inCacheItem];
+    [self deleteCacheItemForKey:key];
 }
 
-- (NSDictionary *)attributesForKey:(NSString *)inKey;
+- (NSDictionary *)attributesForKey:(NSString *)key
 {
     __block BCCPersistentCacheItem *item = nil;
-    /*[self performBlockOnBackgroundMOC:^(BCCDataStoreController *dataStoreController, NSManagedObjectContext *managedObjectContext) {
-        item = [self cacheItemForKey:inKey];
-        NSLog(@"Found ITEM: %@", item);
-    }];
-     
-    return nil;*/
     
-    [self performBlockOnBackgroundMOCAndWait:^(BCCDataStoreController *dataStoreController, NSManagedObjectContext *managedObjectContext, BCCDataStoreControllerWorkParameters *workParameters) {
-        item = [self cacheItemForKey:inKey];
+    [self performBlockOnBackgroundQueueAndWait:^(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *workParameters) {
+        item = [self cacheItemForKey:key];
     }];
     return item.attributes;
 }
 
-- (BCCPersistentCacheItem *)cacheItemForKey:(NSString *)inKey;
+- (BCCPersistentCacheItem *)cacheItemForKey:(NSString *)key
 {
-    if (!inKey.length) {
+    if (!key) {
         return nil;
     }
     
-    BCCPersistentCacheItem *item = (BCCPersistentCacheItem *)[self performSingleResultFetchOfEntityWithName:BCCPersistentCacheItemEntityName usingPropertyList:@[BCCPersistentCacheItemCacheKeyModelKey] valueList:@[inKey] error:NULL];
+    BCCPersistentCacheItem *item = [self findCacheItemForKey:key];
     
     return item;
 }
 
-- (NSData *)cacheDataForKey:(NSString *)inKey;
+- (NSData *)cacheDataForKey:(NSString *)key
 {
-    if (!inKey.length) {
+    if (!key) {
         return nil;
     }
     
     if (self.usesMemoryCache) {
-        NSData *memoryData = [self.memoryCache objectForKey:inKey];
+        NSData *memoryData = [self.memoryCache objectForKey:key];
         if (memoryData) {
             return memoryData;
         }
     }
     
-    NSData *fileData = [self fileCacheDataForKey:inKey];
+    NSData *fileData = [self fileCacheDataForKey:key];
     if (fileData.length && self.usesMemoryCache) {
-        [self.memoryCache setObject:fileData forKey:inKey cost:[fileData length]];
+        [self.memoryCache setObject:fileData forKey:key cost:[fileData length]];
     }
    
     return fileData;
 }
 
-- (NSData *)fileCacheDataForKey:(NSString *)inKey;
+- (NSData *)fileCacheDataForKey:(NSString *)key
 {    
-    /*STPersistentCacheItem *cacheItem = [self cacheItemForKey:inKey];
-    NSString *cachePath = [self _fileCachePathForName:cacheItem.fileName];
-    if (!cachePath) {
-        return nil;
-    }
-    
-    return [NSData dataWithContentsOfFile:cachePath];*/
-    
-    NSString *cachePath = [self _fileCachePathForKey:inKey];
+    NSString *cachePath = [self fileCachePathForKey:key];
     if (!cachePath) {
         return nil;
     }
@@ -434,8 +466,8 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
 {
     [self clearMemoryCache];
 
-    [self deletePersistentStore];
-    [self _clearFileCache];    
+    [self clearCacheItemDatabase];
+    [self clearFileCache];
     
     if (![[NSFileManager defaultManager] fileExistsAtPath:self.fileCachePath]) {
         [[NSFileManager defaultManager] BCC_recursivelyCreatePath:self.fileCachePath];
@@ -447,43 +479,87 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     [self.memoryCache removeAllObjects];
 }
 
-- (BOOL)hasCacheDataForKey:(NSString *)inKey
+- (BOOL)hasCacheDataForKey:(NSString *)key
 {
-    NSString *filePath = [self _fileCachePathForKey:inKey];
+    NSString *filePath = [self fileCachePathForKey:key];
     return [[NSFileManager defaultManager] fileExistsAtPath:filePath];
 }
 
-#pragma mark Private Methods
+#pragma mark - Queue Management
 
-- (void)_updateFileCachePath;
+- (void)performBlockOnMainQueue:(BCCWorkerQueueBlock)block
 {
-    self.fileCachePath = [self.rootDirectory stringByAppendingPathComponent:BCCPersistentCacheFileCacheSubdirectoryName];
+    BCCWorkerQueueParameters *workParameters = [[BCCWorkerQueueParameters alloc] init];
+    workParameters.workExecutionStyle = BCCWorkerQueueExecutionStyleMainQueue;
+    workParameters.workBlock = block;
+    
+    [self.workerQueue performWorkWithParameters:workParameters];
 }
 
-- (NSString *)_fileCachePathForName:(NSString *)inFileName;
+- (void)performBlockOnMainQueueAndWait:(BCCWorkerQueueBlock)block
 {
-    if (!inFileName.length || !self.fileCachePath.length) {
+    BCCWorkerQueueParameters *workParameters = [[BCCWorkerQueueParameters alloc] init];
+    workParameters.workExecutionStyle = BCCWorkerQueueExecutionStyleMainQueueAndWait;
+    workParameters.workBlock = block;
+    
+    [self.workerQueue performWorkWithParameters:workParameters];
+}
+
+- (void)performBlockOnMainQueue:(BCCWorkerQueueBlock)block afterDelay:(NSTimeInterval)delay
+{
+    BCCWorkerQueueParameters *workParameters = [[BCCWorkerQueueParameters alloc] init];
+    workParameters.workExecutionStyle = BCCWorkerQueueExecutionStyleMainQueue;
+    workParameters.executionDelay = delay;
+    workParameters.workBlock = block;
+    
+    [self.workerQueue performWorkWithParameters:workParameters];
+}
+
+- (void)performBlockOnBackgroundQueue:(BCCWorkerQueueBlock)block
+{
+    BCCWorkerQueueParameters *workParameters = [[BCCWorkerQueueParameters alloc] init];
+    workParameters.workExecutionStyle = BCCWorkerQueueExecutionStyleBackgroundQueue;
+    workParameters.workBlock = block;
+    
+    [self.workerQueue performWorkWithParameters:workParameters];
+}
+
+- (void)performBlockOnBackgroundQueueAndWait:(BCCWorkerQueueBlock)block
+{
+    BCCWorkerQueueParameters *workParameters = [[BCCWorkerQueueParameters alloc] init];
+    workParameters.workExecutionStyle = BCCWorkerQueueExecutionStyleBackgroundQueueAndWait;
+    workParameters.workBlock = block;
+    
+    [self.workerQueue performWorkWithParameters:workParameters];
+}
+
+- (void)performBlockOnBackgroundQueue:(BCCWorkerQueueBlock)block afterDelay:(NSTimeInterval)delay
+{
+    BCCWorkerQueueParameters *workParameters = [[BCCWorkerQueueParameters alloc] init];
+    workParameters.workExecutionStyle = BCCWorkerQueueExecutionStyleBackgroundQueue;
+    workParameters.executionDelay = delay;
+    workParameters.workBlock = block;
+    
+    [self.workerQueue performWorkWithParameters:workParameters];
+}
+
+#pragma mark - Private Methods
+
+- (NSString *)fileCachePathForKey:(NSString *)key
+{
+    if (!key || !self.fileCachePath) {
         return nil;
     }
     
-    return [self.fileCachePath stringByAppendingPathComponent:inFileName];
+    return [self.fileCachePath stringByAppendingPathComponent:[key BCC_MD5String]];
 }
 
-- (NSString *)_fileCachePathForKey:(NSString *)inKey;
-{
-    if (!inKey.length || !self.fileCachePath.length) {
-        return nil;
-    }
-    
-    return [self.fileCachePath stringByAppendingPathComponent:[inKey BCC_MD5String]];
-}
-
-- (void)_clearFileCache;
+- (void)clearFileCache
 {
     [[NSFileManager defaultManager] removeItemAtPath:self.fileCachePath error:NULL];
 }
 
-- (void)_clearCacheItemsToFitMaxFileCacheSize;
+- (void)clearCacheItemsToFitMaxFileCacheSize
 {
     NSUInteger cacheSize = self.totalFileCacheSize;
     if (cacheSize <= self.maximumFileCacheSize) {
@@ -491,25 +567,23 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     }
     
     NSUInteger spaceToClear = cacheSize - self.maximumFileCacheSize;
-    [self _clearCacheItemsOfSize:spaceToClear];
+    [self clearCacheItemsOfSize:spaceToClear];
 }
 
-- (void)_clearCacheItemsOfSize:(unsigned long long)inSize;
+- (void)clearCacheItemsOfSize:(unsigned long long)size
 {
     NSLog(@"Clearing Persistent Cache");
     
-    if (!inSize) {
+    if (!size) {
         return;
-    } else if (inSize >= self.totalFileCacheSize) {
+    } else if (size >= self.totalFileCacheSize) {
         [self clearCache];
         return;
     }
     
-    [self performBlockOnBackgroundMOC:^(BCCDataStoreController *dataStoreController, NSManagedObjectContext *context, BCCDataStoreControllerWorkParameters *workParameters) {
-        NSFetchRequest *cacheItemFetchRequest = [self fetchRequestForEntityName:BCCPersistentCacheItemEntityName sortDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:BCCPersistentCacheItemAddedTimestampModelKey ascending:NO]]];
-        NSError *fetchError = nil;
-        NSArray *cacheItems = [self performFetchRequest:cacheItemFetchRequest error:&fetchError];
-        if (fetchError || cacheItems.count < 1) {
+    [self performBlockOnBackgroundQueue:^(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *workParameters) {
+        NSArray *cacheItems = [self allCacheItems];
+        if (cacheItems.count < 1) {
             return;
         }
         
@@ -522,44 +596,121 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
             
             totalCleared += itemSize;
             
-            if (totalCleared >= inSize) {
+            if (totalCleared >= size) {
                 break;
             }
         }
     }];
 }
 
-- (void)_sendCacheItemUpdatedNotificationForItem:(BCCPersistentCacheItem *)updatedItem data:(NSData *)inData;
+- (void)sendCacheItemUpdatedNotificationForItem:(BCCPersistentCacheItem *)updatedItem data:(NSData *)inData;
 {
-    //dispatch_async(self.workerQueue, ^{   
+    /*dispatch_async(self.workerQueue, ^{
         NSDictionary *userInfo = [NSDictionary dictionaryWithObjectsAndKeys:updatedItem, BCCPersistentCacheItemUserInfoItemKey, inData, BCCPersistentCacheItemUserInfoDataKey, nil];
         [[NSNotificationCenter defaultCenter] postNotificationName:BCCPersistentCacheItemUpdatedNotification
                                                             object:updatedItem.key
                                                           userInfo:userInfo];     
-    //});
+});*/
 }
 
-#pragma mark Private Core Data Methods
+#pragma mark - Database Methods
 
-- (BCCPersistentCacheItem *)_findOrCreateCacheItemForKey:(NSString *)inKey;
+- (void)openDatabaseConnection
 {
-    BCCDataStoreControllerIdentityParameters *identityParameters = [BCCDataStoreControllerIdentityParameters identityParametersWithEntityName:BCCPersistentCacheItemEntityName identityPropertyName:BCCPersistentCacheItemCacheKeyModelKey];
-    BCCPersistentCacheItem *item = (BCCPersistentCacheItem *)[self findOrCreateObjectWithIdentityParameters:identityParameters identityValue:inKey groupIdentifier:nil];
+    NSString *rootDirectory = self.rootDirectory;
     
+    if (![[NSFileManager defaultManager] fileExistsAtPath:rootDirectory]) {
+        [[NSFileManager defaultManager] BCC_recursivelyCreatePath:rootDirectory];
+    }
+    
+    NSString *databasePath = [[rootDirectory stringByAppendingPathComponent:@"CacheItems"] stringByAppendingPathExtension:@"sqlite"];
+    int err = sqlite3_open([databasePath UTF8String], &(_databaseConnection));
+    if (err != SQLITE_OK) {
+        NSLog(@"%s", sqlite3_errstr(err));
+        return;
+    }
+    
+    NSString *createTableSQL = @"CREATE TABLE IF NOT EXISTS cache_items(id INTEGER PRIMARY KEY ASC, key TEXT NOT NULL, data_file_path TEXT, file_size INTEGER, date_added INTEGER, date_modified INTEGER)";
+    
+    char *errString;
+    sqlite3_exec(_databaseConnection, [createTableSQL UTF8String], NULL, NULL, &errString);
+    if (errString) {
+        NSLog(@"Cache Item Database Error: %s", errString);
+    }
+}
+
+- (NSArray *)allCacheItems
+{
+    return nil;
+}
+
+- (BCCPersistentCacheItem *)findOrCreateCacheItemForKey:(NSString *)key
+{
+    return nil;
+}
+
+- (BCCPersistentCacheItem *)findCacheItemForKey:(NSString *)key
+{
+    if (!key) {
+        return nil;
+    }
+    
+    if (!_findCacheItemByKeyStatement) {
+        NSString *findSQL = @"SELECT id, key, data_file_path, file_size, date_added, date_modified FROM cache_items WHERE key == ?";
+        int err = sqlite3_prepare_v2(_databaseConnection, [findSQL UTF8String], -1, &(_findCacheItemByKeyStatement), NULL);
+        if (err != SQLITE_OK) {
+            NSLog(@"Cache Item Database Error: %s", sqlite3_errstr(err));
+            return nil;
+        }
+    }
+    
+    int err = sqlite3_bind_text(_findCacheItemByKeyStatement, 1, [key UTF8String], -1, SQLITE_TRANSIENT);
+    if (err != SQLITE_OK) {
+        NSLog(@"%s", sqlite3_errstr(err));
+        return nil;
+    }
+    
+    BCCPersistentCacheItem *item = nil;
+
+    err = sqlite3_step(_findCacheItemByKeyStatement);
+    if (err != SQLITE_ROW) {
+        NSLog(@"%s", sqlite3_errstr(err));
+        goto cleanup;
+    }
+    
+    item = [[BCCPersistentCacheItem alloc] init];
+    
+    const unsigned char *keyChars = sqlite3_column_text(_findCacheItemByKeyStatement, 1);
+    if (keyChars != NULL) {
+        item.key = [[NSString alloc] initWithBytes:keyChars length:sizeof(keyChars) encoding:NSUTF8StringEncoding];
+    }
+    
+    const unsigned char *filePathChars = sqlite3_column_text(_findCacheItemByKeyStatement, 2);
+    if (filePathChars != NULL) {
+        item.filePath = [[NSString alloc] initWithBytes:keyChars length:sizeof(filePathChars) encoding:NSUTF8StringEncoding];
+    }
+    
+cleanup:
+    err = sqlite3_reset(_findCacheItemByKeyStatement);
     return item;
+}
+
+- (void)deleteCacheItemForKey:(NSString *)key
+{
+    
+}
+
+- (void)clearCacheItemDatabase
+{
+    
 }
 
 @end
 
 
-@implementation BCCPersistentCacheItem
+#pragma mark - Cache Item Model
 
-@dynamic key;
-@dynamic fileSize;
-@dynamic addedTimestamp;
-@dynamic updatedTimestamp;
-@dynamic attributes;
-@dynamic fileName;
+@implementation BCCPersistentCacheItem
 
 #pragma mark Public Methods
 
@@ -570,7 +721,7 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     }
     
     self.key = inKey;
-    self.fileName = [inKey BCC_MD5String];
+    self.filePath = [inKey BCC_MD5String];
     
     if (!self.addedTimestamp) {
         self.addedTimestamp = [NSDate date];
@@ -600,17 +751,92 @@ const unsigned long long STPersistentCacheDefaultMaximumFileCacheSize = 20971520
     self.fileSize = [[NSFileManager defaultManager] BCC_fileSizeAtPath:inPath];
 }
 
-#pragma mark Accessors
+@end
 
-- (void)setFileSize:(NSUInteger)inFileSize;
-{
-    [self BCC_setUnsignedInteger:inFileSize forKey:BCCPersistentCacheItemFileSizeModelKey];
-}
 
-- (NSUInteger)fileSize;
-{
-    return [self BCC_unsignedIntegerForKey:BCCPersistentCacheItemFileSizeModelKey];
-}
+#pragma mark - BCCWorkerQueue
+
+@implementation BCCWorkerQueueParameters
 
 @end
 
+
+@interface BCCWorkerQueue ()
+
+@property (strong, nonatomic) dispatch_queue_t backgroundQueue;
+
+@end
+
+@implementation BCCWorkerQueue
+
+- (instancetype)initWithIdentifier:(NSString *)identifier
+{
+    self = [super init];
+    if (!self) {
+        return nil;
+    }
+    
+    _backgroundQueue = dispatch_queue_create([identifier UTF8String], DISPATCH_QUEUE_SERIAL);
+    dispatch_set_target_queue(_backgroundQueue, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0));
+    
+    return self;
+}
+
+- (void)performWorkWithParameters:(BCCWorkerQueueParameters *)workParameters {
+    BCCWorkerQueueBlock workBlock = workParameters.workBlock;
+    BCCWorkerQueueBlock postSaveBlock = workParameters.postSaveBlock;
+    
+    if (!workBlock) {
+        return;
+    }
+    
+    BOOL save = workParameters.shouldSave;
+    BOOL delay = workParameters.executionDelay;
+    BOOL wait = NO;
+    
+    dispatch_queue_t executionQueue = dispatch_get_main_queue();
+    
+    switch (workParameters.workExecutionStyle) {
+        case BCCWorkerQueueExecutionStyleMainQueueAndWait:
+            wait = YES;
+            break;
+        case BCCWorkerQueueExecutionStyleBackgroundQueue:
+            executionQueue = self.backgroundQueue;
+            break;
+        case BCCWorkerQueueExecutionStyleBackgroundQueueAndWait:
+            executionQueue = self.backgroundQueue;
+            wait = YES;
+            break;
+        default:
+            break;
+    }
+    
+    void (^metaBlock)(void) = ^(void) {
+        workBlock(self, workParameters);
+        
+        if (save && self.saveBlock) {
+            self.saveBlock(self, workParameters);
+            
+            if (postSaveBlock) {
+                postSaveBlock(self, workParameters);
+            }
+        }
+    };
+    
+    void (^executionBlock)(void) = ^(void) {
+        if (wait) {
+            dispatch_sync(executionQueue, metaBlock);
+        } else {
+            metaBlock();
+        }
+    };
+    
+    if (delay) {
+        dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, delay * NSEC_PER_SEC);
+        dispatch_after(popTime, executionQueue, executionBlock);
+    } else {
+        executionBlock();
+    }
+}
+
+@end

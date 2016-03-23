@@ -6,8 +6,6 @@
 //
 
 #import <Foundation/Foundation.h>
-#import <CoreData/CoreData.h>
-#import "BCCDataStoreController.h"
 
 
 @class BCCPersistentCacheItem;
@@ -21,36 +19,35 @@ extern NSString *BCCPersistentCacheItemUserInfoDataKey;
 typedef void (^BCCPersistentCacheBlock)(void);
 
 
-@interface BCCPersistentCache : BCCDataStoreController <NSCacheDelegate> 
+@interface BCCPersistentCache : NSObject <NSCacheDelegate>
 
-@property (strong, nonatomic, readonly) NSString *fileCachePath;
-@property (nonatomic) NSUInteger maximumMemoryCacheSize;
-@property (nonatomic) NSUInteger maximumFileCacheSize;
-@property (nonatomic, readonly) NSUInteger totalFileCacheSize;
 @property (nonatomic) BOOL usesMemoryCache;
+@property (nonatomic) NSUInteger maximumMemoryCacheSize;
 
-// Static Methods
-+ (NSString *)metadataModelPath;
+@property (nonatomic) NSUInteger maximumFileCacheSize;
+@property (nonatomic, readonly) NSUInteger currentFileCacheSize;
+@property (strong, nonatomic, readonly) NSString *readOnly;
+
 
 // Initialization
-- (id)initWithIdentifier:(NSString *)inIdentifier;
-- (id)initWithIdentifier:(NSString *)inIdentifier rootDirectory:(NSString *)inRootPath;
+- (id)initWithIdentifier:(NSString *)identifier;
+- (id)initWithIdentifier:(NSString *)identifier rootDirectory:(NSString *)rootPath;
 
 // Public Methods
-- (void)setCacheData:(NSData *)inData forKey:(NSString *)inKey;
-- (void)setCacheData:(NSData *)inData forKey:(NSString *)inKey inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
-- (void)setCacheData:(NSData *)inData forKey:(NSString *)inKey withAttributes:(NSDictionary *)attributes inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
+- (void)setCacheData:(NSData *)data forKey:(NSString *)key;
+- (void)setCacheData:(NSData *)data forKey:(NSString *)key inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
+- (void)setCacheData:(NSData *)data forKey:(NSString *)key withAttributes:(NSDictionary *)attributes inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
 
-- (void)addCacheDataFromFileAtPath:(NSString *)inPath forKey:(NSString *)inKey;
-- (void)addCacheDataFromFileAtPath:(NSString *)inPath forKey:(NSString *)inKey inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
-- (void)addCacheDataFromFileAtPath:(NSString *)inPath forKey:(NSString *)inKey withAttributes:(NSDictionary *)attributes inBackground:(BOOL)inBackground  didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
+- (void)addCacheDataFromFileAtPath:(NSString *)path forKey:(NSString *)key;
+- (void)addCacheDataFromFileAtPath:(NSString *)path forKey:(NSString *)key inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
+- (void)addCacheDataFromFileAtPath:(NSString *)path forKey:(NSString *)key withAttributes:(NSDictionary *)attributes inBackground:(BOOL)inBackground didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
 
-- (BOOL)hasCacheDataForKey:(NSString *)inKey;
-- (NSData *)cacheDataForKey:(NSString *)inKey;
-- (NSData *)fileCacheDataForKey:(NSString *)inKey;
-- (NSDictionary *)attributesForKey:(NSString *)inKey;
+- (BOOL)hasCacheDataForKey:(NSString *)key;
+- (NSData *)cacheDataForKey:(NSString *)key;
+- (NSData *)fileCacheDataForKey:(NSString *)key;
+- (NSDictionary *)attributesForKey:(NSString *)key;
 
-- (void)removeCacheDataForKey:(NSString *)inKey;
+- (void)removeCacheDataForKey:(NSString *)key;
 - (void)clearMemoryCache;
 - (void)clearCache;
 
