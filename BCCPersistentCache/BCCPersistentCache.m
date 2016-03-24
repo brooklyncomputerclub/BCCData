@@ -832,6 +832,12 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         item.attributes = attributesDictionary;
     }
     
+    NSTimeInterval dateAddedSeconds = sqlite3_column_int(statement, 4);
+    item.addedTimestamp = [NSDate dateWithTimeIntervalSince1970:dateAddedSeconds];
+    
+    NSTimeInterval dateUpdatedSeconds = sqlite3_column_int(statement, 5);
+    item.updatedTimestamp = [NSDate dateWithTimeIntervalSince1970:dateUpdatedSeconds];
+    
     return item;
 }
 
@@ -882,12 +888,6 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     
     self.key = inKey;
     self.fileName = [inKey BCC_MD5String];
-    
-    if (!self.addedTimestamp) {
-        self.addedTimestamp = [NSDate date];
-    }
-    
-    self.updatedTimestamp = [NSDate date];
     self.attributes = attributes;
 }
 
