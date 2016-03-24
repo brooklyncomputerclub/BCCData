@@ -67,7 +67,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
 @interface BCCPersistentCacheItem : NSObject
 
 @property (strong, nonatomic) NSString *key;
-@property (strong, nonatomic) NSString *filePath;
+@property (strong, nonatomic) NSString *fileName;
 @property (strong, nonatomic) NSDate *addedTimestamp;
 @property (strong, nonatomic) NSDate *updatedTimestamp;
 @property (strong, nonatomic) NSDictionary *attributes;
@@ -91,8 +91,13 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
 @property (strong, nonatomic) NSString *fileCachePath;
 @property (nonatomic) BOOL needsCacheTruncation;
 
+@property (nonatomic, readonly) NSString *databasePath;
 @property (nonatomic) sqlite3 *databaseConnection;
+@property (nonatomic) sqlite3_stmt *createCacheItemStatement;
+@property (nonatomic) sqlite3_stmt *updateCacheItemStatement;
+@property (nonatomic) sqlite3_stmt *deleteCacheItemStatement;
 @property (nonatomic) sqlite3_stmt *findCacheItemByKeyStatement;
+@property (nonatomic) sqlite3_stmt *findAllCacheItemsStatement;
 
 @property (strong, nonatomic) BCCWorkerQueue *workerQueue;
 
@@ -100,7 +105,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
 
 // Cache Items
 - (BCCPersistentCacheItem *)cacheItemForKey:(NSString *)key;
-- (void)removeCacheItem:(BCCPersistentCacheItem *)inCacheItem;
+- (void)removeCacheItemForKey:(NSString *)key;
 
 // Private Methods
 - (void)setFileCacheData:(NSData *)data forKey:(NSString *)key withAttributes:(NSDictionary *)attributes didPersistBlock:(BCCPersistentCacheBlock)didPersistBlock;
@@ -172,16 +177,21 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     _memoryCache.delegate = self;
     
     _databaseConnection = NULL;
+    _findAllCacheItemsStatement = NULL;
+    _findCacheItemByKeyStatement = NULL;
     
     [self openDatabaseConnection];
-    [self findCacheItemForKey:@"test"];
     
     return self;
 }
 
 - (void)dealloc;
 {
-    int err = sqlite3_finalize(_findCacheItemByKeyStatement);
+    int err = sqlite3_finalize(_createCacheItemStatement);
+    err = sqlite3_finalize(_updateCacheItemStatement);
+    err = sqlite3_finalize(_deleteCacheItemStatement);
+    err = sqlite3_finalize(_findCacheItemByKeyStatement);
+    err = sqlite3_finalize(_findAllCacheItemsStatement);
     err = sqlite3_close(_databaseConnection);
     
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -314,7 +324,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     [inData writeToFile:filePath atomically:NO];
     
     // Create a cache item or update the existing one
-    BCCPersistentCacheItem *item = [self findOrCreateCacheItemForKey:inKey];
+    BCCPersistentCacheItem *item = [[BCCPersistentCacheItem alloc] init];
     [item initializeWithData:inData forKey:inKey withAttributes:attributes];
     
     if (didPersistBlock) {
@@ -358,7 +368,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         }
         
         // Create a cache item or update the existing one
-        BCCPersistentCacheItem *item = [self findOrCreateCacheItemForKey:key];
+        BCCPersistentCacheItem *item = [[BCCPersistentCacheItem alloc] init];
         [item initializeWithPath:path forKey:key withAttributes:attributes];
         
         if (didPersistBlock) {
@@ -384,18 +394,16 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     [self performBlockOnMainQueue:^(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *workParameters) {
         BCCPersistentCacheItem *cacheItem = [self cacheItemForKey:key];
         if (cacheItem) {
-            [self removeCacheItem:cacheItem];
+            [self removeCacheItemForKey:key];
         }
     }];
 }
 
-- (void)removeCacheItem:(BCCPersistentCacheItem *)cacheItem
+- (void)removeCacheItemForKey:(NSString *)key
 {
-    if (!cacheItem) {
+    if (!key) {
         return;
     }
-    
-    NSString *key = cacheItem.key;
     
     // Remove the data from the memory cache
     if (self.usesMemoryCache) {
@@ -592,7 +600,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         for (BCCPersistentCacheItem *currentItem in cacheItems) {
             unsigned long long itemSize = currentItem.fileSize;
             
-            [self removeCacheItem:currentItem];
+            [self removeCacheItemForKey:currentItem.key];
             
             totalCleared += itemSize;
             
@@ -615,22 +623,37 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
 
 #pragma mark - Database Methods
 
+- (NSString *)databasePath
+{
+    if (!self.rootDirectory) {
+        return nil;
+    }
+    return [[self.rootDirectory stringByAppendingPathComponent:@"CacheItems"] stringByAppendingPathExtension:@"sqlite"];
+}
+
 - (void)openDatabaseConnection
 {
-    NSString *rootDirectory = self.rootDirectory;
+    NSString *databasePath = self.databasePath;
+    if (!databasePath) {
+        return;
+    }
+    
+    NSString *rootDirectory = [databasePath BCC_stringByRemovingLastPathComponent];
+    if (!rootDirectory) {
+        return;
+    }
     
     if (![[NSFileManager defaultManager] fileExistsAtPath:rootDirectory]) {
         [[NSFileManager defaultManager] BCC_recursivelyCreatePath:rootDirectory];
     }
     
-    NSString *databasePath = [[rootDirectory stringByAppendingPathComponent:@"CacheItems"] stringByAppendingPathExtension:@"sqlite"];
     int err = sqlite3_open([databasePath UTF8String], &(_databaseConnection));
     if (err != SQLITE_OK) {
         NSLog(@"%s", sqlite3_errstr(err));
         return;
     }
     
-    NSString *createTableSQL = @"CREATE TABLE IF NOT EXISTS cache_items(id INTEGER PRIMARY KEY ASC, key TEXT NOT NULL, data_file_path TEXT, file_size INTEGER, date_added INTEGER, date_modified INTEGER)";
+    NSString *createTableSQL = @"CREATE TABLE IF NOT EXISTS cache_items(id INTEGER PRIMARY KEY ASC, key TEXT NOT NULL UNIQUE, data_file_name TEXT, file_size INTEGER, attributes BLOB, date_added INTEGER, date_modified INTEGER)";
     
     char *errString;
     sqlite3_exec(_databaseConnection, [createTableSQL UTF8String], NULL, NULL, &errString);
@@ -639,14 +662,108 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     }
 }
 
-- (NSArray *)allCacheItems
+- (void)persistCacheItem:(BCCPersistentCacheItem *)cacheItem
 {
-    return nil;
+    if (!_databaseConnection) {
+        return;
+    }
+    
+    NSString *key = cacheItem.key;
+    if (!key) {
+        return;
+    }
+    
+    NSString *fileName = cacheItem.fileName;
+    NSUInteger fileSize = cacheItem.fileSize;
+    NSDate *dateAdded = cacheItem.addedTimestamp;
+    NSDate *dateUpdated = [NSDate date];
+    
+    NSDictionary *attributesDictionary = cacheItem.attributes;
+    NSMutableData *attributesData = nil;
+    if (attributesDictionary) {
+        attributesData = [[NSMutableData alloc] init];
+        NSKeyedArchiver *archiver = [[NSKeyedArchiver alloc] initForWritingWithMutableData:attributesData];
+        [archiver encodeObject:attributesDictionary forKey:@"attributes"];
+        [archiver finishEncoding];
+    }
+
+    int err = SQLITE_OK;
+    
+    sqlite3_stmt *persistStatement = NULL;
+    
+    BCCPersistentCacheItem *existingItem = [self findCacheItemForKey:key];
+    if (!existingItem) {
+        // New item
+        if (!_createCacheItemStatement) {
+            NSString *createsSQL = @"INSERT INTO cache_items (key, data_file_name, file_size, attributes, date_added, date_modified) VALUES (?,?,?,?,?,?)";
+            err = sqlite3_prepare(_databaseConnection, [createsSQL UTF8String], -1, &(_createCacheItemStatement), NULL);
+            if (err != SQLITE_OK) {
+                NSLog(@"Cache Item Database Error: %s", sqlite3_errstr(err));
+                return;
+            }
+        }
+        
+        err = sqlite3_bind_text(_createCacheItemStatement, 1, [key UTF8String], -1, SQLITE_TRANSIENT);
+        err = fileName ? sqlite3_bind_text(_createCacheItemStatement, 2, [fileName UTF8String], -1, SQLITE_TRANSIENT) : sqlite3_bind_null(_createCacheItemStatement, 2);
+        err = sqlite3_bind_int64(_createCacheItemStatement, 3, fileSize);
+        err = attributesData ? sqlite3_bind_blob64(_createCacheItemStatement, 4, [attributesData bytes], [attributesData length], SQLITE_TRANSIENT) : sqlite3_bind_null(_createCacheItemStatement, 4);
+        err = sqlite3_bind_int(_createCacheItemStatement, 5, dateAdded ? dateAdded.timeIntervalSince1970 : dateUpdated.timeIntervalSince1970);
+        err = sqlite3_bind_int(_createCacheItemStatement, 6, dateUpdated.timeIntervalSince1970);
+        
+        persistStatement = _createCacheItemStatement;
+    } else {
+        // Update existing item
+        if (!_updateCacheItemStatement) {
+            NSString *updateSQL = @"UPDATE cache_items SET data_file_name = ?, file_size = ?, attributes = ?, date_modified = ? WHERE key = ?";
+            err = sqlite3_prepare(_databaseConnection, [updateSQL UTF8String], -1, &(_updateCacheItemStatement), NULL);
+            if (err != SQLITE_OK) {
+                NSLog(@"Cache Item Database Error: %s", sqlite3_errstr(err));
+                return;
+            }
+        }
+        
+        err = fileName ? sqlite3_bind_text(_updateCacheItemStatement, 1, [fileName UTF8String], -1, SQLITE_TRANSIENT) : sqlite3_bind_null(_createCacheItemStatement, 1);
+        err = sqlite3_bind_int64(_updateCacheItemStatement, 2, fileSize);
+        err = attributesData ? sqlite3_bind_blob64(_updateCacheItemStatement, 3, [attributesData bytes], [attributesData length], SQLITE_TRANSIENT) : sqlite3_bind_null(_updateCacheItemStatement, 3);
+        err = sqlite3_bind_int(_updateCacheItemStatement, 4, dateUpdated.timeIntervalSince1970);
+        err = sqlite3_bind_text(_updateCacheItemStatement, 5, [key UTF8String], -1, SQLITE_TRANSIENT);
+        
+        persistStatement = _updateCacheItemStatement;
+    }
+    
+    err = sqlite3_step(persistStatement);
+    if (err != SQLITE_ERROR) {
+        
+    }
+    
+    err = sqlite3_reset(persistStatement);
 }
 
-- (BCCPersistentCacheItem *)findOrCreateCacheItemForKey:(NSString *)key
+- (NSArray *)allCacheItems
 {
-    return nil;
+    if (!_findAllCacheItemsStatement) {
+        NSString *findSQL = @"SELECT key, data_file_path, file_size, attributes, date_added, date_modified FROM cache_items ORDER BY date_modified ASC";
+        int err = sqlite3_prepare_v2(_databaseConnection, [findSQL UTF8String], -1, &(_findAllCacheItemsStatement), NULL);
+        if (err != SQLITE_OK) {
+            NSLog(@"Cache Item Database Error: %s", sqlite3_errstr(err));
+            return nil;
+        }
+    }
+    
+    NSMutableArray *cacheItems = [[NSMutableArray alloc] init];
+    BCCPersistentCacheItem *currentItem = nil;
+    while (true) {
+        currentItem = [self nextCacheItemFromStatement:_findAllCacheItemsStatement];
+        if (currentItem) {
+            [cacheItems addObject:currentItem];
+        } else {
+            break;
+        }
+    }
+    
+    sqlite3_reset(_findAllCacheItemsStatement);
+    
+    return cacheItems;
 }
 
 - (BCCPersistentCacheItem *)findCacheItemForKey:(NSString *)key
@@ -656,7 +773,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     }
     
     if (!_findCacheItemByKeyStatement) {
-        NSString *findSQL = @"SELECT id, key, data_file_path, file_size, date_added, date_modified FROM cache_items WHERE key == ?";
+        NSString *findSQL = @"SELECT key, data_file_name, file_size, attributes, date_added, date_modified FROM cache_items WHERE key == ?";
         int err = sqlite3_prepare_v2(_databaseConnection, [findSQL UTF8String], -1, &(_findCacheItemByKeyStatement), NULL);
         if (err != SQLITE_OK) {
             NSLog(@"Cache Item Database Error: %s", sqlite3_errstr(err));
@@ -667,42 +784,85 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     int err = sqlite3_bind_text(_findCacheItemByKeyStatement, 1, [key UTF8String], -1, SQLITE_TRANSIENT);
     if (err != SQLITE_OK) {
         NSLog(@"%s", sqlite3_errstr(err));
+    }
+    
+    BCCPersistentCacheItem *item = [self nextCacheItemFromStatement:_findCacheItemByKeyStatement];
+    
+    sqlite3_reset(_findCacheItemByKeyStatement);
+    
+    return item;
+}
+
+- (BCCPersistentCacheItem *)nextCacheItemFromStatement:(sqlite3_stmt *)statement
+{
+    if (!statement) {
         return nil;
     }
     
-    BCCPersistentCacheItem *item = nil;
-
-    err = sqlite3_step(_findCacheItemByKeyStatement);
+    int err = sqlite3_step(statement);
     if (err != SQLITE_ROW) {
-        NSLog(@"%s", sqlite3_errstr(err));
-        goto cleanup;
+        return nil;
     }
     
-    item = [[BCCPersistentCacheItem alloc] init];
+    BCCPersistentCacheItem *item = [[BCCPersistentCacheItem alloc] init];
     
-    const unsigned char *keyChars = sqlite3_column_text(_findCacheItemByKeyStatement, 1);
+    const unsigned char *keyChars = sqlite3_column_text(statement, 0);
     if (keyChars != NULL) {
-        item.key = [[NSString alloc] initWithBytes:keyChars length:sizeof(keyChars) encoding:NSUTF8StringEncoding];
+        NSUInteger keyLength = sqlite3_column_bytes(statement, 0);
+        item.key = [[NSString alloc] initWithBytes:keyChars length:keyLength encoding:NSUTF8StringEncoding];
     }
     
-    const unsigned char *filePathChars = sqlite3_column_text(_findCacheItemByKeyStatement, 2);
-    if (filePathChars != NULL) {
-        item.filePath = [[NSString alloc] initWithBytes:keyChars length:sizeof(filePathChars) encoding:NSUTF8StringEncoding];
+    const unsigned char *fileNameChars = sqlite3_column_text(statement, 1);
+    if (fileNameChars != NULL) {
+        NSUInteger fileNameLength = sqlite3_column_bytes(statement, 1);
+        item.fileName = [[NSString alloc] initWithBytes:keyChars length:fileNameLength encoding:NSUTF8StringEncoding];
+    }
+
+    sqlite3_int64 fileSize = sqlite3_column_int64(statement, 2);
+    item.fileSize = fileSize;
+    
+    const void *attributesBlob = sqlite3_column_blob(statement, 3);
+    if (attributesBlob != NULL) {
+        NSUInteger attributesLength = sqlite3_column_bytes(statement, 3);
+        NSData *attributesData = [[NSData alloc] initWithBytes:attributesBlob length:attributesLength];
+
+        NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingWithData:attributesData];
+        NSDictionary *attributesDictionary = [unarchiver decodeObjectForKey:@"attributes"];
+        
+        item.attributes = attributesDictionary;
     }
     
-cleanup:
-    err = sqlite3_reset(_findCacheItemByKeyStatement);
     return item;
 }
 
 - (void)deleteCacheItemForKey:(NSString *)key
 {
+    if (!key) {
+        return;
+    }
     
+    if (!_deleteCacheItemStatement) {
+        NSString *deleteSQL = @"DELETE FROM cache_items WHERE key = ?";
+        int err = sqlite3_prepare_v2(_databaseConnection, [deleteSQL UTF8String], -1, &(_deleteCacheItemStatement), NULL);
+        if (err != SQLITE_OK) {
+            NSLog(@"Cache Item Database Error: %s", sqlite3_errstr(err));
+            return;
+        }
+    }
+    
+    sqlite3_bind_text(_deleteCacheItemStatement, 1, [key UTF8String], -1, SQLITE_TRANSIENT);
+    sqlite3_step(_deleteCacheItemStatement);
+    sqlite3_reset(_deleteCacheItemStatement);
 }
 
 - (void)clearCacheItemDatabase
 {
+    NSString *databasePath = self.databasePath;
+    if (!databasePath) {
+        return;
+    }
     
+    [[NSFileManager defaultManager] removeItemAtPath:databasePath error:NULL];
 }
 
 @end
@@ -721,7 +881,7 @@ cleanup:
     }
     
     self.key = inKey;
-    self.filePath = [inKey BCC_MD5String];
+    self.fileName = [inKey BCC_MD5String];
     
     if (!self.addedTimestamp) {
         self.addedTimestamp = [NSDate date];
