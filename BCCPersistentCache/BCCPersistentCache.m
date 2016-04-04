@@ -15,7 +15,7 @@
 @class BCCWorkerQueue;
 @class BCCWorkerQueueParameters;
 
-//BCCWorkerQueue
+// BCCWorkerQueue
 
 typedef enum {
     BCCWorkerQueueExecutionStyleMainQueueAndWait,
@@ -52,10 +52,8 @@ typedef void (^BCCWorkerQueueBlock)(BCCWorkerQueue *workerQueue, BCCWorkerQueueP
 NSString *BCCPersistentCacheFileCacheSubdirectoryName = @"Data";
 
 NSString *BCCPersistentCacheItemUpdatedNotification = @"BCCPersistentCacheItemUpdatedNotification";
-NSString *BCCPersistentCacheItemCacheKeyModelKey = @"key";
-NSString *BCCPersistentCacheItemAddedTimestampModelKey = @"addedTimestamp";
-NSString *BCCPersistentCacheItemFileSizeModelKey = @"fileSize";
-NSString *BCCPersistentCacheItemDataModelKey = @"data";
+NSString *BCCPersistentCacheItemUserInfoItemKey = @"item";
+NSString *BCCPersistentCacheItemUserInfoDataKey = @"data";
 
 // 2MB      2097152
 // 10 MB    10485760
@@ -141,7 +139,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     }
     
     [pathComponents addObject:inIdentifier];
-        
+    
     NSString *path = [NSString pathWithComponents:pathComponents];
     
     return path;
@@ -167,7 +165,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     
     _identifier = identifier;
     
-    _rootDirectory = rootDirectory ? rootDirectory : [BCCPersistentCache defaultRootDirectoryForIdentifier:identifier rootPath:nil];
+    self.rootDirectory = rootDirectory ? rootDirectory : [BCCPersistentCache defaultRootDirectoryForIdentifier:identifier rootPath:nil];
     
     _usesMemoryCache = YES;
     
@@ -175,6 +173,8 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     
     _memoryCache = [[NSCache alloc] init];
     _memoryCache.delegate = self;
+    
+    _workerQueue = [[BCCWorkerQueue alloc] initWithIdentifier:identifier];
     
     _databaseConnection = NULL;
     _findAllCacheItemsStatement = NULL;
@@ -242,7 +242,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         // This is designed to ensure that truncation jobs run no more than
         // once every 2 seconds, and only if something has actually been
         // added to the cache.
-
+        
         BCCWorkerQueueBlock truncateCacheBlock = ^(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *workParameters) {
             // If we were set to no longer need cache truncation during the
             // delay, cancel the truncation job
@@ -254,7 +254,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
             
             _needsCacheTruncation = NO;
         };
-
+        
         [self performBlockOnBackgroundQueue:truncateCacheBlock afterDelay:2.0];
     }
 }
@@ -301,7 +301,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         
         [self setFileCacheData:inData forKey:inKey withAttributes:attributes didPersistBlock:didPersistBlock];
     };
-
+    
     if (inBackground) {
         [self performBlockOnBackgroundQueue:setDataBlock];
     } else {
@@ -326,6 +326,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     // Create a cache item or update the existing one
     BCCPersistentCacheItem *item = [[BCCPersistentCacheItem alloc] init];
     [item initializeWithData:inData forKey:inKey withAttributes:attributes];
+    [self persistCacheItem:item];
     
     if (didPersistBlock) {
         didPersistBlock();
@@ -358,7 +359,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         if (![[NSFileManager defaultManager] fileExistsAtPath:self.fileCachePath]) {
             [[NSFileManager defaultManager] BCC_recursivelyCreatePath:self.fileCachePath];
         }
-
+        
         NSString *filePath = [self fileCachePathForKey:key];
         NSError *moveError;
         BOOL success = [[NSFileManager defaultManager] moveItemAtPath:path toPath:filePath error:&moveError];
@@ -370,6 +371,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         // Create a cache item or update the existing one
         BCCPersistentCacheItem *item = [[BCCPersistentCacheItem alloc] init];
         [item initializeWithPath:path forKey:key withAttributes:attributes];
+        [self persistCacheItem:item];
         
         if (didPersistBlock) {
             dispatch_async(dispatch_get_main_queue(), didPersistBlock);
@@ -413,7 +415,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     // Remove the data from the file cache
     NSString *filePath = [self fileCachePathForKey:key];
     [[NSFileManager defaultManager] removeItemAtPath:filePath error:NULL];
-        
+    
     // Delete the cache item
     [self deleteCacheItemForKey:key];
 }
@@ -456,12 +458,12 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     if (fileData.length && self.usesMemoryCache) {
         [self.memoryCache setObject:fileData forKey:key cost:[fileData length]];
     }
-   
+    
     return fileData;
 }
 
 - (NSData *)fileCacheDataForKey:(NSString *)key
-{    
+{
     NSString *cachePath = [self fileCachePathForKey:key];
     if (!cachePath) {
         return nil;
@@ -473,7 +475,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
 - (void)clearCache;
 {
     [self clearMemoryCache];
-
+    
     [self clearCacheItemDatabase];
     [self clearFileCache];
     
@@ -613,12 +615,12 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
 
 - (void)sendCacheItemUpdatedNotificationForItem:(BCCPersistentCacheItem *)updatedItem data:(NSData *)inData;
 {
-    /*dispatch_async(self.workerQueue, ^{
+    [self performBlockOnMainQueue:^(BCCWorkerQueue *workerQueue, BCCWorkerQueueParameters *parameters) {
         NSDictionary *userInfo = [NSDictionary dictionaryWithObjectsAndKeys:updatedItem, BCCPersistentCacheItemUserInfoItemKey, inData, BCCPersistentCacheItemUserInfoDataKey, nil];
         [[NSNotificationCenter defaultCenter] postNotificationName:BCCPersistentCacheItemUpdatedNotification
                                                             object:updatedItem.key
-                                                          userInfo:userInfo];     
-});*/
+                                                          userInfo:userInfo];
+    }];
 }
 
 #pragma mark - Database Methods
@@ -638,13 +640,8 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         return;
     }
     
-    NSString *rootDirectory = [databasePath BCC_stringByRemovingLastPathComponent];
-    if (!rootDirectory) {
-        return;
-    }
-    
-    if (![[NSFileManager defaultManager] fileExistsAtPath:rootDirectory]) {
-        [[NSFileManager defaultManager] BCC_recursivelyCreatePath:rootDirectory];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:databasePath]) {
+        [[NSFileManager defaultManager] BCC_recursivelyCreatePath:databasePath lastComponentIsFile:YES];
     }
     
     int err = sqlite3_open([databasePath UTF8String], &(_databaseConnection));
@@ -686,7 +683,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         [archiver encodeObject:attributesDictionary forKey:@"attributes"];
         [archiver finishEncoding];
     }
-
+    
     int err = SQLITE_OK;
     
     sqlite3_stmt *persistStatement = NULL;
@@ -817,7 +814,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
         NSUInteger fileNameLength = sqlite3_column_bytes(statement, 1);
         item.fileName = [[NSString alloc] initWithBytes:keyChars length:fileNameLength encoding:NSUTF8StringEncoding];
     }
-
+    
     sqlite3_int64 fileSize = sqlite3_column_int64(statement, 2);
     item.fileSize = fileSize;
     
@@ -825,7 +822,7 @@ const unsigned long long BCCPersistentCacheDefaultMaximumFileCacheSize = 2097152
     if (attributesBlob != NULL) {
         NSUInteger attributesLength = sqlite3_column_bytes(statement, 3);
         NSData *attributesData = [[NSData alloc] initWithBytes:attributesBlob length:attributesLength];
-
+        
         NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingWithData:attributesData];
         NSDictionary *attributesDictionary = [unarchiver decodeObjectForKey:@"attributes"];
         
