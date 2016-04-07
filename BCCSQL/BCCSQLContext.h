@@ -14,17 +14,19 @@
 
 /* 
      TO DO:
-     - How to deal with integer primary keys/autoincrement and compound primary keys
-     - Enum for SQL types?
      - Create object for entity (using dictionary?)
      - Update object for entity by ID (using dictionary or existing object?)
-     - Find object for entity by ID
-     - Find object for entity using predicate
-     - Delete object by ID
+ 
+     - Parameter bindings instead of baked-in text for prepared statement SQL?
+     - Some sort of scheme for prepared statement caching?
      - Quicker way to add columns to an entity
      - Coercion of SQL types to objects for entity properties (using Mantle-style transformation?)
+     - Confirmation of type validity for find query values?
+     - Default column values
      - Relationships/foreign keys?
      - Swift integration?
+     - Versioning/handle DB incompatibility?
+     - How to deal with compound primary keys?
 */
 
 typedef NS_ENUM(NSUInteger, BCCSQLType) {
@@ -55,9 +57,12 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 
 // CRUD
 - (id<BCCSQLObject>)createOrUpdateObjectForEntityName:(NSString *)entityName usingDictionary:(NSDictionary *)dictionary;
-- (id<BCCSQLObject>)findObjectForEntityName:(NSString *)entityName primaryKey:(id)primaryKey;
+
+- (id<BCCSQLObject>)findObjectForEntityName:(NSString *)entityName primaryKeyValue:(id)primaryKeyValue;
 - (NSArray<BCCSQLObject> *)findObjectsForEntityName:(NSString *)entityName withPredicate:(NSPredicate *)predicate;
-- (void)deleteObjectForEntityName:(NSString *)entityName;
+
+- (void)deleteObjectForEntityName:(NSString *)entityName primaryKeyValue:(id)primaryKeyValue;
+- (void)deleteObjectsForEntityName:(NSString *)entityName withPredicate:(NSPredicate *)predicate;
 
 @end
 
@@ -66,6 +71,7 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 
 @property (strong, nonatomic) NSString *name;
 @property (strong, nonatomic) NSString *tableName;
+@property (strong, nonatomic) NSString *primaryKey;
 @property (nonatomic) Class<BCCSQLObject> instanceClass;
 
 - (instancetype)initWithName:(NSString *)name;
@@ -82,7 +88,6 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 @property (nonatomic) BCCSQLType sqlType;
 @property (strong, nonatomic) NSString *propertyKeyPath;
 
-@property (nonatomic) BOOL primaryKey;
 @property (nonatomic) BOOL nonNull;
 @property (nonatomic) BOOL unique;
 

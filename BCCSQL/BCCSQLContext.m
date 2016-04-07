@@ -22,6 +22,9 @@
 
 - (void)createEntityTables;
 
+- (sqlite3_stmt *)prepareSQLStatement:(NSString *)SQLString error:(NSError **)error;
+- (id<BCCSQLObject>)nextObjectFromStatement:(sqlite3_stmt *)statement forEntity:(BCCSQLEntity *)entity error:(NSError **)error;
+
 @end
 
 
@@ -30,6 +33,8 @@
 @property (strong, nonatomic) NSMutableArray<BCCSQLColumn *> *columns;
 
 @property (nonatomic, readonly) NSString *createTableSQL;
+
+- (NSPredicate *)primaryKeyPredicateForValue:(id)value;
 
 @end
 
@@ -129,9 +134,20 @@
     return nil;
 }
 
-- (id<BCCSQLObject>)findObjectForEntityName:(NSString *)entityName primaryKey:(id)primaryKey
+- (id<BCCSQLObject>)findObjectForEntityName:(NSString *)entityName primaryKeyValue:(id)primaryKeyValue
 {
-    return nil;
+    BCCSQLEntity *entity = [self entityForName:entityName];
+    if (!entity) {
+        return nil;
+    }
+    
+    NSPredicate *primaryKeyPredicate = [entity primaryKeyPredicateForValue:primaryKeyValue];
+    if (!primaryKeyPredicate) {
+        return nil;
+    }
+    
+    NSArray *foundObjects = [self findObjectsForEntityName:entityName withPredicate:primaryKeyPredicate];
+    return foundObjects.firstObject;
 }
 
 - (__kindof NSArray<BCCSQLObject> *)findObjectsForEntityName:(NSString *)entityName withPredicate:(NSPredicate *)predicate
@@ -175,16 +191,15 @@
     NSMutableArray<BCCSQLObject> *foundObjects = nil;
     id<BCCSQLObject> currentObject = nil;
     
-    sqlite3_stmt *selectStatement;
-    int err = sqlite3_prepare_v2(_databaseConnection, [selectString UTF8String], -1, &(selectStatement), NULL);
-    if (err != SQLITE_OK) {
-        NSLog(@"Cache Item Database Error: %s", sqlite3_errstr(err));
-        goto cleanup;
+    NSError *error;
+    sqlite3_stmt *selectStatement = [self prepareSQLStatement:selectString error:&error];
+    if (error != nil) {
+        return nil;
     }
     
     foundObjects = [[NSMutableArray<BCCSQLObject> alloc] init];
     while (true) {
-        currentObject = [self nextObjectFromStatement:selectStatement forEntity:entity];
+        currentObject = [self nextObjectFromStatement:selectStatement forEntity:entity error:NULL];
         if (currentObject) {
             [foundObjects addObject:currentObject];
         } else {
@@ -198,14 +213,85 @@ cleanup:
     return foundObjects;
 }
 
-- (id<BCCSQLObject>)nextObjectFromStatement:(sqlite3_stmt *)statement forEntity:(BCCSQLEntity *)entity
+- (void)deleteObjectForEntityName:(NSString *)entityName primaryKeyValue:(id)primaryKeyValue
+{
+    BCCSQLEntity *entity = [self entityForName:entityName];
+    if (!entity) {
+        return;
+    }
+    
+    NSPredicate *primaryKeyPredicate = [entity primaryKeyPredicateForValue:primaryKeyValue];
+    if (!primaryKeyPredicate) {
+        return;
+    }
+    
+    [self deleteObjectsForEntityName:entityName withPredicate:primaryKeyPredicate];
+}
+
+- (void)deleteObjectsForEntityName:(NSString *)entityName withPredicate:(NSPredicate *)predicate
+{
+    if (!_databaseConnection || !entityName) {
+        return;
+    }
+    
+    BCCSQLEntity *entity = [self entityForName:entityName];
+    if (!entity) {
+        return;
+    }
+    
+    NSString *tableName = entity.tableName;
+    if (!tableName) {
+        return;
+    }
+    
+    NSMutableString *deleteString = [[NSMutableString alloc] initWithFormat:@"DELETE FROM %@", tableName];
+    
+    if (predicate) {
+        [deleteString appendFormat:@" WHERE %@", predicate.predicateFormat];
+    }
+    
+    NSError *error;
+    sqlite3_stmt *deleteStatement = [self prepareSQLStatement:deleteString error:&error];
+    if (error != nil) {
+        return;
+    }
+
+    // TO DO: Break this out into a block-based method?
+    int stepResult;
+    do {
+        stepResult = sqlite3_step(deleteStatement);
+    } while (stepResult == SQLITE_ROW);
+    
+    sqlite3_finalize(deleteStatement);
+}
+
+#pragma mark - Prepared Statements
+
+- (sqlite3_stmt *)prepareSQLStatement:(NSString *)SQLString error:(NSError **)error
+{
+    if (!_databaseConnection || !SQLString) {
+        return nil;
+    }
+    
+    sqlite3_stmt *statement;
+    int err = sqlite3_prepare_v2(_databaseConnection, [SQLString UTF8String], -1, &(statement), NULL);
+    if (err != SQLITE_OK) {
+        *error = [NSError errorWithDomain:@"BCCSQLContextSQLErrorDomain" code:err userInfo:nil];
+        return nil;
+    }
+    
+    *error = nil;
+    return statement;
+}
+
+- (id<BCCSQLObject>)nextObjectFromStatement:(sqlite3_stmt *)statement forEntity:(BCCSQLEntity *)entity error:(NSError **)error
 {
     if (!statement || !entity) {
         return nil;
     }
     
-    int err = sqlite3_step(statement);
-    if (err != SQLITE_ROW) {
+    int stepResult = sqlite3_step(statement);
+    if (stepResult != SQLITE_ROW) {
         return nil;
     }
     
@@ -216,6 +302,7 @@ cleanup:
         
         id value = nil;
         
+        // TO DO: Centralize type coercion logic somewhere?
         if (currentColumn.sqlType == BCCSQLTypeText) {
             const unsigned char *stringValue = sqlite3_column_text(statement, (int)idx);
             
@@ -238,11 +325,6 @@ cleanup:
     }];
     
     return object;
-}
-
-- (void)deleteObjectForEntityName:(NSString *)entityName
-{
-    
 }
 
 @end
@@ -288,6 +370,10 @@ cleanup:
         hadValidColumns = YES;
         [columnsString appendString:columnDefinitionSQL];
         
+        if ([currentColumn.name isEqualToString:self.primaryKey]) {
+            [columnsString appendString:@" PRIMARY KEY"];
+        }
+        
         if (idx < (columnCount - 1)) {
             [columnsString appendString:@", "];
         }
@@ -299,6 +385,16 @@ cleanup:
     }
     
     return createString;
+}
+
+- (NSPredicate *)primaryKeyPredicateForValue:(id)value
+{
+    NSString *primaryKey = self.primaryKey;
+    if (!primaryKey) {
+        return nil;
+    }
+    
+    return [NSPredicate predicateWithFormat:@"%K == %@", primaryKey, value];
 }
 
 - (void)addColumn:(BCCSQLColumn *)column
@@ -374,10 +470,6 @@ cleanup:
     if (typeString != nil) {
         [createString appendFormat:@" %@", typeString];
     }
-    
-    if (self.primaryKey) {
-        [createString appendString:@" PRIMARY KEY"];
-    }
 
     if (self.nonNull) {
         [createString appendString:@" NOT NULL"];
@@ -407,10 +499,9 @@ cleanup:
     BCCSQLColumn *testColumn1 = [[BCCSQLColumn alloc] initWithName:@"id"];
     testColumn1.sqlType = BCCSQLTypeInteger;
     testColumn1.propertyKeyPath = @"objectID";
-    testColumn1.primaryKey = YES;
-    testColumn1.unique = YES;
     
     [testEntity addColumn:testColumn1];
+    testEntity.primaryKey = testColumn1.name;
     
     BCCSQLColumn *testColumn2 = [[BCCSQLColumn alloc] initWithName:@"name"];
     testColumn2.sqlType = BCCSQLTypeText;
@@ -422,8 +513,10 @@ cleanup:
     
     [sqlContext initializeDatabase];
     
-    NSArray *foundObjects = [sqlContext findObjectsForEntityName:@"Record" withPredicate:[NSPredicate predicateWithFormat:@"%K == %@", testColumn1.name, @"1"]];
-    NSLog(@"%@", foundObjects);
+    BCCSQLTestModelObject *foundObject = [sqlContext findObjectForEntityName:@"Record" primaryKeyValue:@(1)];
+    NSLog(@"%@", foundObject);
+    
+    [sqlContext deleteObjectForEntityName:@"Record" primaryKeyValue:@(1)];
 }
 
 - (NSString *)description
