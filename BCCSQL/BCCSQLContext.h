@@ -9,14 +9,14 @@
 #import <Foundation/Foundation.h>
 
 @class BCCSQLEntity;
-@class BCCSQLColumn;
-@protocol BCCSQLObject;
+@class BCCSQLProperty;
 
 /* 
      TO DO:
      - Create object for entity (using dictionary?)
      - Update object for entity by ID (using dictionary or existing object?)
  
+     - Get rid of entityForName/registerEntity, rely only on entity provided by model class, add methods to create tables from model object classes?
      - Parameter bindings instead of baked-in text for prepared statement SQL?
      - Some sort of scheme for prepared statement caching?
      - Quicker way to add columns to an entity
@@ -37,7 +37,18 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
     BCCSQLTypeBlob
 };
 
-@protocol BCCSQLObject <NSObject>
+@protocol BCCSQLModelObject <NSObject>
+
++ (BCCSQLEntity *)entity;
+
++ (instancetype)modelObjectWithDictionary:(NSDictionary *)dictionaryValue;
+
+- (instancetype)initWithDictionary:(NSDictionary *)dictionary;
+
+- (id)valueForPropertyKey:(NSString *)propertyKey;
+- (void)markPropertyKeyChanged:(NSString *)key;
+- (NSSet <NSString *> *)changedPropertyKeys;
+- (void)resetChangedPropertyKeys;
 
 @end
 
@@ -56,13 +67,14 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 - (BCCSQLEntity *)entityForName:(NSString *)entityName;
 
 // CRUD
-- (id<BCCSQLObject>)createOrUpdateObjectForEntityName:(NSString *)entityName usingDictionary:(NSDictionary *)dictionary;
+- (void)createOrUpdateModelObject:(id <BCCSQLModelObject>)modelObject;
 
-- (id<BCCSQLObject>)findObjectForEntityName:(NSString *)entityName primaryKeyValue:(id)primaryKeyValue;
-- (NSArray<BCCSQLObject> *)findObjectsForEntityName:(NSString *)entityName withPredicate:(NSPredicate *)predicate;
+- (id<BCCSQLModelObject>)findObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
+- (NSArray<BCCSQLModelObject> *)findObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate;
 
-- (void)deleteObjectForEntityName:(NSString *)entityName primaryKeyValue:(id)primaryKeyValue;
-- (void)deleteObjectsForEntityName:(NSString *)entityName withPredicate:(NSPredicate *)predicate;
+- (void)deleteObject:(id<BCCSQLModelObject>)object;
+- (void)deleteObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
+- (void)deleteObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate;
 
 @end
 
@@ -71,32 +83,45 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 
 @property (strong, nonatomic) NSString *name;
 @property (strong, nonatomic) NSString *tableName;
+@property (nonatomic) Class<BCCSQLModelObject> instanceClass;
 @property (strong, nonatomic) NSString *primaryKey;
-@property (nonatomic) Class<BCCSQLObject> instanceClass;
+
+@property (nonatomic, readonly) BCCSQLProperty *primaryKeyColumn;
 
 - (instancetype)initWithName:(NSString *)name;
 
-- (void)addColumn:(BCCSQLColumn *)column;
-- (BCCSQLColumn *)columnForName:(NSString *)columnName;
+- (void)addProperty:(BCCSQLProperty *)column;
+- (BCCSQLProperty *)propertyForKey:(NSString *)key;
+- (BCCSQLProperty *)propertyForColumnName:(NSString *)columnName;
 
 @end
 
 
-@interface BCCSQLColumn : NSObject
+@interface BCCSQLProperty : NSObject
 
-@property (strong, nonatomic) NSString *name;
+@property (strong, nonatomic) NSString *columnName;
 @property (nonatomic) BCCSQLType sqlType;
-@property (strong, nonatomic) NSString *propertyKeyPath;
+@property (strong, nonatomic) NSString *propertyKey;
 
 @property (nonatomic) BOOL nonNull;
 @property (nonatomic) BOOL unique;
 
-- (instancetype)initWithName:(NSString *)name;
+- (instancetype)initWithColumnName:(NSString *)name;
 
 @end
 
 
-@interface BCCSQLTestModelObject : NSObject <BCCSQLObject>
+@interface BCCSQLModelObject : NSObject <BCCSQLModelObject>
+
+- (id)valueForPropertyKey:(NSString *)key;
+- (void)markPropertyKeyChanged:(NSString *)key;
+- (NSArray <NSString *> *)changedPropertyKeys;
+- (void)resetChangedPropertyKeys;
+
+@end
+
+
+@interface BCCSQLTestModelObject : BCCSQLModelObject
 
 @property (nonatomic) NSInteger objectID;
 @property (strong, nonatomic) NSString *name;
@@ -104,4 +129,3 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 + (void)performTest;
 
 @end
-
