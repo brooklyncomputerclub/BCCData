@@ -45,11 +45,6 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 
 - (instancetype)initWithDictionary:(NSDictionary *)dictionary;
 
-- (id)valueForPropertyKey:(NSString *)propertyKey;
-- (void)markPropertyKeyChanged:(NSString *)key;
-- (NSSet <NSString *> *)changedPropertyKeys;
-- (void)resetChangedPropertyKeys;
-
 @end
 
 
@@ -67,7 +62,8 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 - (BCCSQLEntity *)entityForName:(NSString *)entityName;
 
 // CRUD
-- (void)createOrUpdateModelObject:(id <BCCSQLModelObject>)modelObject;
+- (void)createModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary;
+- (id <BCCSQLModelObject>)createOrUpdateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary <NSString *, id> *)dictionary primaryKeyValue:(id)primaryKeyValue;
 
 - (id<BCCSQLModelObject>)findObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
 - (NSArray<BCCSQLModelObject> *)findObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate;
@@ -86,7 +82,7 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 @property (nonatomic) Class<BCCSQLModelObject> instanceClass;
 @property (strong, nonatomic) NSString *primaryKey;
 
-@property (nonatomic, readonly) BCCSQLProperty *primaryKeyColumn;
+@property (nonatomic, readonly) BCCSQLProperty *primaryKeyProperty;
 
 - (instancetype)initWithName:(NSString *)name;
 
@@ -112,11 +108,6 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 
 
 @interface BCCSQLModelObject : NSObject <BCCSQLModelObject>
-
-- (id)valueForPropertyKey:(NSString *)key;
-- (void)markPropertyKeyChanged:(NSString *)key;
-- (NSArray <NSString *> *)changedPropertyKeys;
-- (void)resetChangedPropertyKeys;
 
 @end
 
