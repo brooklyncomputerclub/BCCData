@@ -273,6 +273,7 @@ cleanup:
     
     sqlite3_finalize(createOrUpdateStatement);
     
+    // TO DO: Return updated object
     return nil;
 }
 
@@ -350,6 +351,7 @@ cleanup:
 
 - (__kindof NSArray<BCCSQLModelObject> *)findObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate
 {
+    // TO DO
     return nil;
 }
     

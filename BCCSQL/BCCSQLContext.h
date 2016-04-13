@@ -13,20 +13,27 @@
 
 /* 
      TO DO:
+     
+     NOW:
      - Create object for entity (using dictionary?)
-     - Update object for entity by ID (using dictionary or existing object?)
- 
+     - Find multiple objects using (optional) predicate
+     - Delete multiple objects using (optional) predicate
+     - Dry up some of the SQL string generation code?
+     - Better type coercion/coercion incompatibility handling
      - Get rid of entityForName/registerEntity, rely only on entity provided by model class, add methods to create tables from model object classes?
-     - Parameter bindings instead of baked-in text for prepared statement SQL?
+ 
+     MAYBE NOW:
+     - Queuing
+     - Transactions
+     - Observation
+ 
+     LATER:
      - Some sort of scheme for prepared statement caching?
      - Quicker way to add columns to an entity
-     - Coercion of SQL types to objects for entity properties (using Mantle-style transformation?)
-     - Confirmation of type validity for find query values?
      - Default column values
      - Relationships/foreign keys?
      - Swift integration?
      - Versioning/handle DB incompatibility?
-     - How to deal with compound primary keys?
 */
 
 typedef NS_ENUM(NSUInteger, BCCSQLType) {
@@ -62,15 +69,15 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 - (BCCSQLEntity *)entityForName:(NSString *)entityName;
 
 // CRUD
-- (void)createModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary;
+- (void)createModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary; // TO DO
 - (id <BCCSQLModelObject>)createOrUpdateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary <NSString *, id> *)dictionary primaryKeyValue:(id)primaryKeyValue;
 
 - (id<BCCSQLModelObject>)findObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
-- (NSArray<BCCSQLModelObject> *)findObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate;
+- (NSArray<BCCSQLModelObject> *)findObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate; // TO DO
 
 - (void)deleteObject:(id<BCCSQLModelObject>)object;
 - (void)deleteObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
-- (void)deleteObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate;
+- (void)deleteObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate; // TO DO
 
 @end
 
