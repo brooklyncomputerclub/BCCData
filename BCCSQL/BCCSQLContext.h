@@ -15,12 +15,17 @@
      TO DO:
      
      NOW:
-     - Create object for entity (using dictionary?)
+     - More explicit column/property ordering?
+     - Make create/update methods return full model objects
+ 
      - Find multiple objects using (optional) predicate
      - Delete multiple objects using (optional) predicate
-     - Dry up some of the SQL string generation code?
+ 
      - Better type coercion/coercion incompatibility handling
+ 
      - Get rid of entityForName/registerEntity, rely only on entity provided by model class, add methods to create tables from model object classes?
+ 
+     - Better/more thorough error reporting
  
      MAYBE NOW:
      - Queuing
@@ -69,11 +74,12 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 - (BCCSQLEntity *)entityForName:(NSString *)entityName;
 
 // CRUD
-- (void)createModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary; // TO DO
-- (id <BCCSQLModelObject>)createOrUpdateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary <NSString *, id> *)dictionary primaryKeyValue:(id)primaryKeyValue;
+- (id<BCCSQLModelObject>)createModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary;
+- (id<BCCSQLModelObject>)updateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary;
+- (id <BCCSQLModelObject>)createOrUpdateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary <NSString *, id> *)dictionary;
 
-- (id<BCCSQLModelObject>)findObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
-- (NSArray<BCCSQLModelObject> *)findObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate; // TO DO
+- (id<BCCSQLModelObject>)findModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
+- (NSArray<BCCSQLModelObject> *)findModelObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate; // TO DO
 
 - (void)deleteObject:(id<BCCSQLModelObject>)object;
 - (void)deleteObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
@@ -87,13 +93,13 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 @property (strong, nonatomic) NSString *name;
 @property (strong, nonatomic) NSString *tableName;
 @property (nonatomic) Class<BCCSQLModelObject> instanceClass;
-@property (strong, nonatomic) NSString *primaryKey;
+@property (nonatomic, readonly) NSString *primaryKeyPropertyKey;
 
 @property (nonatomic, readonly) BCCSQLProperty *primaryKeyProperty;
 
 - (instancetype)initWithName:(NSString *)name;
 
-- (void)addProperty:(BCCSQLProperty *)column;
+- (void)addProperty:(BCCSQLProperty *)column primaryKey:(BOOL)isPrimaryKey;
 - (BCCSQLProperty *)propertyForKey:(NSString *)key;
 - (BCCSQLProperty *)propertyForColumnName:(NSString *)columnName;
 
@@ -102,9 +108,9 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 
 @interface BCCSQLProperty : NSObject
 
+@property (strong, nonatomic) NSString *propertyKey;
 @property (strong, nonatomic) NSString *columnName;
 @property (nonatomic) BCCSQLType sqlType;
-@property (strong, nonatomic) NSString *propertyKey;
 
 @property (nonatomic) BOOL nonNull;
 @property (nonatomic) BOOL unique;
