@@ -39,6 +39,8 @@
 @property (nonatomic, readonly) NSString *createTableSQL;
 @property (nonatomic, readonly) NSString *deleteSQL;
 @property (nonatomic, readonly) NSString *findByPrimaryKeySQL;
+@property (nonatomic, readonly) NSString *findByRowIDSQL;
+@property (nonatomic, readonly) NSString *columnsString;
 
 - (NSString *)insertSQLForPropertyDictionary:(NSDictionary *)dictionary values:(NSArray **)values;
 - (NSString *)updateSQLForPropertyDictionary:(NSDictionary <NSString *, id> *)dictionary values:(NSArray **)values;
@@ -151,11 +153,18 @@
         return nil;
     }
     
+    // TO DO: Wrap this all in a transaction
+    
     NSArray *values;
     NSString *insertSQL = [entity insertSQLForPropertyDictionary:dictionary values:&values];
     if (!insertSQL) {
         return nil;
     }
+    
+    NSInteger lastInsertID;
+    NSString *findSQL = entity.findByRowIDSQL;
+    sqlite3_stmt *findStatement = NULL;
+    id<BCCSQLModelObject> foundObject = nil;
     
     NSError *error;
     sqlite3_stmt *insertStatement = [self prepareSQLStatement:insertSQL withParameterValues:values error:&error];
@@ -168,15 +177,24 @@
         goto cleanup;
     }
     
+    lastInsertID = sqlite3_last_insert_rowid(_databaseConnection);
+    
+    findStatement = [self prepareSQLStatement:findSQL withParameterValues:@[@(lastInsertID)] error:&error];
+    if (error != nil) {
+        goto cleanup;
+    }
+    
+    foundObject = [self nextObjectFromStatement:findStatement forEntity:entity error:&error];
+
 cleanup:
     if (error != nil) {
         NSLog(@"SQL Error: %@", error);
     }
     
     sqlite3_finalize(insertStatement);
+    sqlite3_finalize(findStatement);
     
-    // TO DO: Return updated object
-    return nil;
+    return foundObject;
 }
 
 - (id<BCCSQLModelObject>)updateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary
@@ -426,32 +444,50 @@ cleanup:
     
     NSObject<BCCSQLModelObject> *object = [[(Class)entity.instanceClass alloc] init];
     
-    [entity.properties enumerateObjectsUsingBlock:^(BCCSQLProperty * _Nonnull currentProperty, NSUInteger idx, BOOL * _Nonnull stop) {
+    int columnCount = sqlite3_column_count(statement);
+    for (int idx = 0; idx < columnCount; idx++) {
+        const char *columnNameChar = sqlite3_column_name(statement, idx);
+        if (columnNameChar == NULL) {
+            continue;
+        }
+        
+        NSString *columnName = [NSString stringWithCString:columnNameChar encoding:NSUTF8StringEncoding];
+       
+        BCCSQLProperty *currentProperty = [entity propertyForColumnName:columnName];
+        if (!currentProperty) {
+            continue;
+        }
+        
         NSString *propertyKey = currentProperty.propertyKey;
         
         id value = nil;
         
-        // TO DO: Centralize type coercion logic somewhere?
-        if (currentProperty.sqlType == BCCSQLTypeText) {
-            const unsigned char *stringValue = sqlite3_column_text(statement, (int)idx);
-            
+        int sqliteType = sqlite3_column_type(statement, idx);
+        
+        if (sqliteType == SQLITE_INTEGER) {
+            int intValue = sqlite3_column_int(statement, idx);
+            value = [NSNumber numberWithInt:intValue];
+        } else if (sqliteType == SQLITE_FLOAT) {
+            double doubleValue = sqlite3_column_double(statement, idx);
+            value = [NSNumber numberWithDouble:doubleValue];
+        } else if (sqliteType == SQLITE_TEXT) {
+            const unsigned char *stringValue = sqlite3_column_text(statement, idx);
             if (stringValue != NULL) {
-                NSUInteger dataLength = sqlite3_column_bytes(statement, (int)idx);
+                NSUInteger dataLength = sqlite3_column_bytes(statement, idx);
                 value = [[NSString alloc] initWithBytes:stringValue length:dataLength encoding:NSUTF8StringEncoding];
             }
-        } else if (currentProperty.sqlType == BCCSQLTypeNumeric) {
-
-        } else if (currentProperty.sqlType == BCCSQLTypeInteger) {
-            int intValue = sqlite3_column_int(statement, (int)idx);
-            value = [NSNumber numberWithInt:intValue];
-        } else if (currentProperty.sqlType == BCCSQLTypeReal) {
-            
-        } else if (currentProperty.sqlType == BCCSQLTypeBlob) {
-            
+        } else if (sqliteType == SQLITE_BLOB) {
+            const void *bytesValue = sqlite3_column_blob(statement, idx);
+            if (bytesValue != NULL) {
+                int bytesSize = sqlite3_column_bytes(statement, idx);
+                value = [[NSData alloc] initWithBytes:bytesValue length:bytesSize];
+            }
+        } else if (sqliteType == SQLITE_NULL) {
+            // For now do nothing
         }
         
         [object setValue:value forKey:propertyKey];
-    }];
+    }
     
     return object;
 }
@@ -552,6 +588,23 @@ cleanup:
         return nil;
     }
     
+    NSString *findSQL = [NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@ = ?", self.columnsString, tableName, primaryKeyColumnName];
+    return findSQL;
+}
+
+- (NSString *)findByRowIDSQL
+{
+    NSString *tableName = self.tableName;
+    if (!tableName) {
+        return nil;
+    }
+    
+    NSString *findSQL = [NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE rowid = ?", self.columnsString, tableName];
+    return findSQL;
+}
+
+- (NSString *)columnsString
+{
     NSMutableString *columnsString = nil;
     
     NSArray<BCCSQLProperty *> *properties = self.properties;
@@ -572,9 +625,7 @@ cleanup:
         }];
     }
     
-    NSString *findSQL = [NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@ = ?", columnsString, tableName, primaryKeyColumnName];
-
-    return findSQL;
+    return columnsString ? columnsString : @"*";
 }
 
 - (NSString *)insertSQLForPropertyDictionary:(NSDictionary <NSString *, id> *)dictionary values:(NSArray **)values
@@ -858,9 +909,11 @@ cleanup:
     [sqlContext registerEntity:entity];
     [sqlContext initializeDatabase];
     
-    [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{NSStringFromSelector(@selector(name)): @"Buzz Andersen"}];
+    BCCSQLTestModelObject *foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{NSStringFromSelector(@selector(name)): @"Buzz Andersen"}];
     
-    BCCSQLTestModelObject *foundObject = [sqlContext findModelObjectOfClass:[self class] primaryKeyValue:@(1)];
+    NSLog(@"%@", foundObject);
+    
+    foundObject = [sqlContext findModelObjectOfClass:[self class] primaryKeyValue:@(1)];
     
     NSLog(@"%@", foundObject);
     

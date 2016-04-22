@@ -15,8 +15,8 @@
      TO DO:
      
      NOW:
-     - More explicit column/property ordering?
      - Make create/update methods return full model objects
+     - Wrap everything in transactions
  
      - Find multiple objects using (optional) predicate
      - Delete multiple objects using (optional) predicate
