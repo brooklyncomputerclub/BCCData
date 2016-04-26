@@ -15,7 +15,6 @@
      TO DO:
      
      NOW:
-     - Make create/update methods return full model objects
      - Wrap everything in transactions
  
      - Find multiple objects using (optional) predicate
@@ -24,7 +23,7 @@
      - Better type coercion/coercion incompatibility handling
  
      - Get rid of entityForName/registerEntity, rely only on entity provided by model class, add methods to create tables from model object classes?
- 
+
      - Better/more thorough error reporting
  
      MAYBE NOW:
@@ -75,8 +74,8 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 
 // CRUD
 - (id<BCCSQLModelObject>)createModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary;
-- (id<BCCSQLModelObject>)updateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary;
-- (id <BCCSQLModelObject>)createOrUpdateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary <NSString *, id> *)dictionary;
+- (id<BCCSQLModelObject>)updateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary primaryKeyValue:(id<BCCSQLModelObject>)primaryKeyValue;
+- (id<BCCSQLModelObject>)createOrUpdateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary <NSString *, id> *)dictionary;
 
 - (id<BCCSQLModelObject>)findModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
 - (NSArray<BCCSQLModelObject> *)findModelObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate; // TO DO

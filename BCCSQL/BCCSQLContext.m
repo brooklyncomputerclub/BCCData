@@ -43,7 +43,7 @@
 @property (nonatomic, readonly) NSString *columnsString;
 
 - (NSString *)insertSQLForPropertyDictionary:(NSDictionary *)dictionary values:(NSArray **)values;
-- (NSString *)updateSQLForPropertyDictionary:(NSDictionary <NSString *, id> *)dictionary values:(NSArray **)values;
+- (NSString *)updateSQLForPropertyDictionary:(NSDictionary <NSString *, id> *)dictionary primaryKeyValue:(id)primaryKeyValue values:(NSArray **)values;
 
 @end
 
@@ -197,9 +197,9 @@ cleanup:
     return foundObject;
 }
 
-- (id<BCCSQLModelObject>)updateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary
+- (id<BCCSQLModelObject>)updateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary primaryKeyValue:(id<BCCSQLModelObject>)primaryKeyValue
 {
-    if (!modelObjectClass) {
+    if (!modelObjectClass || !dictionary || !primaryKeyValue) {
         return nil;
     }
     
@@ -209,10 +209,13 @@ cleanup:
     }
     
     NSArray *values;
-    NSString *updateSQL = [entity updateSQLForPropertyDictionary:dictionary values:&values];
+    NSString *updateSQL = [entity updateSQLForPropertyDictionary:dictionary primaryKeyValue:primaryKeyValue values:&values];
     if (!updateSQL) {
         return nil;
     }
+    
+    int sqlResult;
+    id<BCCSQLModelObject> foundObject = nil;
     
     NSError *error;
     sqlite3_stmt *updateStatement = [self prepareSQLStatement:updateSQL withParameterValues:values error:&error];
@@ -220,10 +223,12 @@ cleanup:
         goto cleanup;
     }
     
-    int sqlResult = sqlite3_step(updateStatement);
+    sqlResult = sqlite3_step(updateStatement);
     if (sqlResult == SQLITE_ERROR) {
         goto cleanup;
     }
+    
+    foundObject = [self findModelObjectOfClass:modelObjectClass primaryKeyValue:primaryKeyValue];
     
 cleanup:
     if (error != nil) {
@@ -233,7 +238,7 @@ cleanup:
     sqlite3_finalize(updateStatement);
     
     // TO DO: Return updated object
-    return nil;
+    return foundObject;
 }
 
 - (id <BCCSQLModelObject>)createOrUpdateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary <NSString *, id> *)dictionary
@@ -259,7 +264,7 @@ cleanup:
         }
     }
     
-    return createObject ? [self createModelObjectOfClass:modelObjectClass withDictionary:dictionary] : [self updateModelObjectOfClass:modelObjectClass withDictionary:dictionary];
+    return createObject ? [self createModelObjectOfClass:modelObjectClass withDictionary:dictionary] : [self updateModelObjectOfClass:modelObjectClass withDictionary:dictionary primaryKeyValue:primaryKeyValue];
 }
 
 #pragma mark - Object Delete
@@ -680,11 +685,9 @@ cleanup:
     return insertSQL;
 }
 
-- (NSString *)updateSQLForPropertyDictionary:(NSDictionary <NSString *, id> *)dictionary values:(NSArray **)values
+- (NSString *)updateSQLForPropertyDictionary:(NSDictionary <NSString *, id> *)dictionary primaryKeyValue:(id)primaryKeyValue values:(NSArray **)values
 {
-    // Must include primary key and at least one column value
-    // for updates
-    if (dictionary.count < 2) {
+    if (dictionary.count < 1 || !primaryKeyValue) {
         return nil;
     }
     
@@ -705,11 +708,6 @@ cleanup:
     
     NSString *primaryKeyPropertyKey = primaryKeyProperty.propertyKey;
     if (!primaryKeyPropertyKey) {
-        return nil;
-    }
-    
-    id primaryKeyValue = [dictionary valueForKey:primaryKeyPropertyKey];
-    if (!primaryKeyValue) {
         return nil;
     }
     
@@ -911,13 +909,15 @@ cleanup:
     
     BCCSQLTestModelObject *foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{NSStringFromSelector(@selector(name)): @"Buzz Andersen"}];
     
-    NSLog(@"%@", foundObject);
+    NSLog(@"CREATE: %@", foundObject);
     
     foundObject = [sqlContext findModelObjectOfClass:[self class] primaryKeyValue:@(1)];
     
-    NSLog(@"%@", foundObject);
+    NSLog(@"FIND: %@", foundObject);
     
-    [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{entity.primaryKeyProperty.propertyKey: @(1),  NSStringFromSelector(@selector(name)): @"Laurence Andersen"}];
+    foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{entity.primaryKeyProperty.propertyKey: @(1),  NSStringFromSelector(@selector(name)): @"Laurence Andersen"}];
+    
+    NSLog(@"UPDATE: %@", foundObject);
     
     [sqlContext deleteObject:foundObject];
 }
