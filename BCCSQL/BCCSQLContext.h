@@ -15,8 +15,6 @@
      TO DO:
      
      NOW:
-     - Wrap everything in transactions
- 
      - Find multiple objects using (optional) predicate
      - Delete multiple objects using (optional) predicate
  

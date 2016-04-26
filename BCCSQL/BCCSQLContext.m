@@ -55,6 +55,13 @@
 @end
 
 
+@interface NSPredicate (BCCSQLExtensions)
+
+- (NSString *)BCCSQL_predicateString;
+
+@end
+
+
 @implementation BCCSQLContext
 
 #pragma mark - Initialization
@@ -403,6 +410,13 @@ cleanup:
 
 - (__kindof NSArray<BCCSQLModelObject> *)findModelObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate
 {
+    if (!predicate) {
+        return nil;
+    }
+    
+    NSString *predicateString = [predicate BCCSQL_predicateString];
+    NSLog(@"PREDICATE: %@", predicateString);
+    
     // TO DO
     return nil;
 }
@@ -606,6 +620,36 @@ cleanup:
     
     NSString *findSQL = [NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE rowid = ?", self.columnsString, tableName];
     return findSQL;
+}
+
+- (NSString *)findSQLForPredicate:(NSPredicate *)predicate
+{
+    if ([predicate isKindOfClass:[NSComparisonPredicate class]]) {
+        NSComparisonPredicate *comparisonPredicate = (NSComparisonPredicate *)predicate;
+        
+        NSMutableString *predicateSQL = [[NSMutableString alloc] init];
+        
+        [predicateSQL appendString:comparisonPredicate.leftExpression.keyPath];
+        
+        switch (comparisonPredicate.predicateOperatorType) {
+            case NSEqualToPredicateOperatorType:
+                [predicateSQL appendString:@" = "];
+                break;
+            case NSNotEqualToPredicateOperatorType:
+                [predicateSQL appendString:@" != "];
+                break;
+            default:
+                break;
+        }
+        
+        [predicateSQL appendString:@"?"];
+        
+        NSLog(@"Predicate SQL: %@ (%@)", predicateSQL, comparisonPredicate.rightExpression.constantValue);
+        
+        return predicateSQL;
+    }
+    
+    return nil;
 }
 
 - (NSString *)columnsString
@@ -911,11 +955,13 @@ cleanup:
     
     NSLog(@"CREATE: %@", foundObject);
     
-    foundObject = [sqlContext findModelObjectOfClass:[self class] primaryKeyValue:@(1)];
+    foundObject = [sqlContext findModelObjectOfClass:[self class] primaryKeyValue:@(foundObject.objectID)];
+    
+    [sqlContext findModelObjectsOfClass:[self class] withPredicate:[NSPredicate predicateWithFormat:@"%K == %@", @"name", @"Buzz Andersen"]];
     
     NSLog(@"FIND: %@", foundObject);
     
-    foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{entity.primaryKeyProperty.propertyKey: @(1),  NSStringFromSelector(@selector(name)): @"Laurence Andersen"}];
+    foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{entity.primaryKeyProperty.propertyKey:@(foundObject.objectID),  NSStringFromSelector(@selector(name)): @"Laurence Andersen"}];
     
     NSLog(@"UPDATE: %@", foundObject);
     
@@ -954,3 +1000,39 @@ cleanup:
 }
 
 @end
+
+
+@implementation NSPredicate (BCCSQLExtensions)
+
+- (NSString *)BCCSQL_predicateString
+{
+    if ([self isKindOfClass:[NSComparisonPredicate class]]) {
+        NSComparisonPredicate *comparisonPredicate = (NSComparisonPredicate *)self;
+        
+        NSMutableString *predicateSQL = [[NSMutableString alloc] init];
+        
+        [predicateSQL appendString:comparisonPredicate.leftExpression.keyPath];
+        
+        switch (comparisonPredicate.predicateOperatorType) {
+            case NSEqualToPredicateOperatorType:
+                [predicateSQL appendString:@" = "];
+                break;
+            case NSNotEqualToPredicateOperatorType:
+                [predicateSQL appendString:@" != "];
+                break;
+            default:
+                break;
+        }
+        
+        [predicateSQL appendString:@"?"];
+        
+        NSLog(@"Predicate SQL: %@ (%@)", predicateSQL, comparisonPredicate.rightExpression.constantValue);
+        
+        return predicateSQL;
+    }
+    
+    return nil;
+}
+
+@end
+
