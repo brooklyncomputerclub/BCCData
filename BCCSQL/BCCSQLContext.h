@@ -15,6 +15,8 @@
      TO DO:
      
      NOW:
+     - Handle compound predicates/multiple predicate expressions/maybe return list of parameters by reference in predicate SQL method?
+ 
      - Find multiple objects using (optional) predicate
      - Delete multiple objects using (optional) predicate
  
@@ -36,6 +38,7 @@
      - Relationships/foreign keys?
      - Swift integration?
      - Versioning/handle DB incompatibility?
+     - CloudKit
 */
 
 typedef NS_ENUM(NSUInteger, BCCSQLType) {

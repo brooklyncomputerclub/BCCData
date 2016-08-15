@@ -45,6 +45,8 @@
 - (NSString *)insertSQLForPropertyDictionary:(NSDictionary *)dictionary values:(NSArray **)values;
 - (NSString *)updateSQLForPropertyDictionary:(NSDictionary <NSString *, id> *)dictionary primaryKeyValue:(id)primaryKeyValue values:(NSArray **)values;
 
+- (NSString *)findSQLForPredicate:(NSPredicate *)predicate;
+
 @end
 
 
@@ -380,11 +382,6 @@ cleanup:
         return nil;
     }
     
-    NSString *tableName = entity.tableName;
-    if (!tableName) {
-        return nil;
-    }
-    
     NSString *findSQL = entity.findByPrimaryKeySQL;
     if (!findSQL) {
         return nil;
@@ -414,11 +411,38 @@ cleanup:
         return nil;
     }
     
-    NSString *predicateString = [predicate BCCSQL_predicateString];
-    NSLog(@"PREDICATE: %@", predicateString);
+    BCCSQLEntity *entity = [modelObjectClass entity];
+    if (!entity) {
+        return nil;
+    }
+
+    NSString *findSQL = [entity findSQLForPredicate:predicate];
+    if (!findSQL) {
+        return nil;
+    }
     
-    // TO DO
-    return nil;
+    id parameterValue = ((NSComparisonPredicate *)predicate).rightExpression.constantValue;
+    
+    NSMutableArray<BCCSQLModelObject> *foundObjects = nil;
+    id<BCCSQLModelObject> currentObject;
+    
+    NSError *error;
+    sqlite3_stmt *selectStatement = [self prepareSQLStatement:findSQL withParameterValues:@[parameterValue] error:&error];
+    if (error != nil) {
+        goto cleanup;
+    }
+    
+    foundObjects = [[NSMutableArray<BCCSQLModelObject> alloc] init];
+    while ((currentObject = [self nextObjectFromStatement:selectStatement forEntity:entity error:&error]) != nil) {
+        [foundObjects addObject:currentObject];
+    }
+    
+cleanup:
+    if (error != nil) {
+        NSLog(@"SQL Error: %@", error);
+    }
+    
+    return foundObjects;
 }
 
 #pragma mark - Prepared Statements
@@ -611,6 +635,21 @@ cleanup:
     return findSQL;
 }
 
+- (NSString *)findByPredicateSQL:(NSPredicate *)predicate {
+    NSString *tableName = self.tableName;
+    if (!tableName) {
+        return nil;
+    }
+    
+    NSString *predicateString = [self findSQLForPredicate:predicate];
+    if (!predicateString) {
+        return nil;
+    }
+    
+    NSString *findSQL = [NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@", self.columnsString, tableName, predicateString];
+    return findSQL;
+}
+
 - (NSString *)findByRowIDSQL
 {
     NSString *tableName = self.tableName;
@@ -624,7 +663,7 @@ cleanup:
 
 - (NSString *)findSQLForPredicate:(NSPredicate *)predicate
 {
-    if ([predicate isKindOfClass:[NSComparisonPredicate class]]) {
+    if (predicate != nil && [predicate isKindOfClass:[NSComparisonPredicate class]]) {
         NSComparisonPredicate *comparisonPredicate = (NSComparisonPredicate *)predicate;
         
         NSMutableString *predicateSQL = [[NSMutableString alloc] init];
@@ -965,7 +1004,7 @@ cleanup:
     
     NSLog(@"UPDATE: %@", foundObject);
     
-    [sqlContext deleteObject:foundObject];
+    //[sqlContext deleteObject:foundObject];
 }
 
 + (BCCSQLEntity *)entity
