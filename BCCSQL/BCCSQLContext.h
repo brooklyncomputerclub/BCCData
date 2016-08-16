@@ -15,7 +15,7 @@
      TO DO:
      
      NOW:
-     - Handle compound predicates/multiple predicate expressions/maybe return list of parameters by reference in predicate SQL method?
+     - Maybe return list of parameters by reference in predicate SQL generation method (rather than a separate method)?
  
      - Find multiple objects using (optional) predicate
      - Delete multiple objects using (optional) predicate
@@ -91,6 +91,7 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 @interface BCCSQLEntity : NSObject
 
 @property (strong, nonatomic) NSString *name;
+@property (strong, nonatomic) NSString *city;
 @property (strong, nonatomic) NSString *tableName;
 @property (nonatomic) Class<BCCSQLModelObject> instanceClass;
 @property (nonatomic, readonly) NSString *primaryKeyPropertyKey;
@@ -129,6 +130,7 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 
 @property (nonatomic) NSInteger objectID;
 @property (strong, nonatomic) NSString *name;
+@property (strong, nonatomic) NSString *city;
 
 + (void)performTest;
 

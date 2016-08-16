@@ -60,6 +60,7 @@
 @interface NSPredicate (BCCSQLExtensions)
 
 - (NSString *)BCCSQL_predicateString;
+- (NSArray *)BCCSQL_parameterList;
 
 @end
 
@@ -421,13 +422,14 @@ cleanup:
         return nil;
     }
     
-    id parameterValue = ((NSComparisonPredicate *)predicate).rightExpression.constantValue;
+    // TO DO: Get parameter sin less janky way (return params by reference from findSQLForPredicate?)
+    NSArray *parameterValues = predicate.BCCSQL_parameterList;
     
     NSMutableArray<BCCSQLModelObject> *foundObjects = nil;
     id<BCCSQLModelObject> currentObject;
     
     NSError *error;
-    sqlite3_stmt *selectStatement = [self prepareSQLStatement:findSQL withParameterValues:@[parameterValue] error:&error];
+    sqlite3_stmt *selectStatement = [self prepareSQLStatement:findSQL withParameterValues:parameterValues error:&error];
     if (error != nil) {
         goto cleanup;
     }
@@ -635,21 +637,6 @@ cleanup:
     return findSQL;
 }
 
-- (NSString *)findByPredicateSQL:(NSPredicate *)predicate {
-    NSString *tableName = self.tableName;
-    if (!tableName) {
-        return nil;
-    }
-    
-    NSString *predicateString = [self findSQLForPredicate:predicate];
-    if (!predicateString) {
-        return nil;
-    }
-    
-    NSString *findSQL = [NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@", self.columnsString, tableName, predicateString];
-    return findSQL;
-}
-
 - (NSString *)findByRowIDSQL
 {
     NSString *tableName = self.tableName;
@@ -663,32 +650,18 @@ cleanup:
 
 - (NSString *)findSQLForPredicate:(NSPredicate *)predicate
 {
-    if (predicate != nil && [predicate isKindOfClass:[NSComparisonPredicate class]]) {
-        NSComparisonPredicate *comparisonPredicate = (NSComparisonPredicate *)predicate;
-        
-        NSMutableString *predicateSQL = [[NSMutableString alloc] init];
-        
-        [predicateSQL appendString:comparisonPredicate.leftExpression.keyPath];
-        
-        switch (comparisonPredicate.predicateOperatorType) {
-            case NSEqualToPredicateOperatorType:
-                [predicateSQL appendString:@" = "];
-                break;
-            case NSNotEqualToPredicateOperatorType:
-                [predicateSQL appendString:@" != "];
-                break;
-            default:
-                break;
-        }
-        
-        [predicateSQL appendString:@"?"];
-        
-        NSLog(@"Predicate SQL: %@ (%@)", predicateSQL, comparisonPredicate.rightExpression.constantValue);
-        
-        return predicateSQL;
+    NSString *tableName = self.tableName;
+    if (!tableName) {
+        return nil;
     }
     
-    return nil;
+    NSString *predicateString = [predicate BCCSQL_predicateString];
+    if (!predicateString) {
+        return nil;
+    }
+    
+    NSString *findSQL = [NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@", self.columnsString, tableName, predicateString];
+    return findSQL;
 }
 
 - (NSString *)columnsString
@@ -990,13 +963,13 @@ cleanup:
     [sqlContext registerEntity:entity];
     [sqlContext initializeDatabase];
     
-    BCCSQLTestModelObject *foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{NSStringFromSelector(@selector(name)): @"Buzz Andersen"}];
+    BCCSQLTestModelObject *foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{NSStringFromSelector(@selector(name)): @"Buzz Andersen", NSStringFromSelector(@selector(city)): @"Brooklyn"}];
     
     NSLog(@"CREATE: %@", foundObject);
     
     foundObject = [sqlContext findModelObjectOfClass:[self class] primaryKeyValue:@(foundObject.objectID)];
     
-    [sqlContext findModelObjectsOfClass:[self class] withPredicate:[NSPredicate predicateWithFormat:@"%K == %@", @"name", @"Buzz Andersen"]];
+    [sqlContext findModelObjectsOfClass:[self class] withPredicate:[NSPredicate predicateWithFormat:@"%K == %@ AND %K == %@", @"name", @"Buzz Andersen", @"city", @"Brooklyn"]];
     
     NSLog(@"FIND: %@", foundObject);
     
@@ -1030,6 +1003,12 @@ cleanup:
     
     [entity addProperty:nameProperty];
     
+    BCCSQLProperty *cityProperty = [[BCCSQLProperty alloc] initWithColumnName:@"city"];
+    cityProperty.sqlType = BCCSQLTypeText;
+    cityProperty.propertyKey = NSStringFromSelector(@selector(city));
+    
+    [entity addProperty:cityProperty];
+    
     return entity;
 }
 
@@ -1045,10 +1024,34 @@ cleanup:
 
 - (NSString *)BCCSQL_predicateString
 {
-    if ([self isKindOfClass:[NSComparisonPredicate class]]) {
-        NSComparisonPredicate *comparisonPredicate = (NSComparisonPredicate *)self;
+    NSMutableString *predicateSQL = [[NSMutableString alloc] init];
+    
+    if ([self isKindOfClass:[NSCompoundPredicate class]]) {
+        NSArray *subpredicates = ((NSCompoundPredicate *)self).subpredicates;
         
-        NSMutableString *predicateSQL = [[NSMutableString alloc] init];
+        NSString *logicalExpression;
+        switch (((NSCompoundPredicate *)self).compoundPredicateType) {
+            case NSOrPredicateType:
+                logicalExpression = @"OR";
+                break;
+            case NSNotPredicateType:
+                logicalExpression = @"NOT";
+                break;
+            default:
+                logicalExpression = @"AND";
+                break;
+        }
+        
+        NSLog(@"Compound Predicate (%@)", logicalExpression);
+        
+        [subpredicates enumerateObjectsUsingBlock:^(NSPredicate * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+            NSString *substring = [obj BCCSQL_predicateString];
+            if (substring != nil) {
+                [predicateSQL BCC_appendPredicateConditionWithOperator:logicalExpression string:substring];
+            }
+        }];
+    } else if ([self isKindOfClass:[NSComparisonPredicate class]]) {
+        NSComparisonPredicate *comparisonPredicate = (NSComparisonPredicate *)self;
         
         [predicateSQL appendString:comparisonPredicate.leftExpression.keyPath];
         
@@ -1066,11 +1069,30 @@ cleanup:
         [predicateSQL appendString:@"?"];
         
         NSLog(@"Predicate SQL: %@ (%@)", predicateSQL, comparisonPredicate.rightExpression.constantValue);
-        
-        return predicateSQL;
     }
     
-    return nil;
+    return predicateSQL;
+}
+
+- (NSArray *)BCCSQL_parameterList
+{
+    __block NSMutableArray *parameters = [[NSMutableArray alloc] init];
+    
+    if ([self isKindOfClass:[NSCompoundPredicate class]]) {
+        NSArray *subpredicates = ((NSCompoundPredicate *)self).subpredicates;
+        [subpredicates enumerateObjectsUsingBlock:^(NSPredicate * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+            NSArray *subparams = [obj BCCSQL_parameterList];
+            if (subparams != nil) {
+                [parameters addObjectsFromArray:subparams];
+            }
+        }];
+    } else if ([self isKindOfClass:[NSComparisonPredicate class]]) {
+        NSExpression *rightExpression = ((NSComparisonPredicate *)self).rightExpression;
+        id parameterValue = rightExpression.constantValue;
+        [parameters addObject:parameterValue];
+    }
+    
+    return parameters;
 }
 
 @end
