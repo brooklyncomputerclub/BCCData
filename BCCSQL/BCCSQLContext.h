@@ -15,15 +15,9 @@
      TO DO:
      
      NOW:
-     - Maybe return list of parameters by reference in predicate SQL generation method (rather than a separate method)?
- 
-     - Find multiple objects using (optional) predicate
      - Delete multiple objects using (optional) predicate
- 
      - Better type coercion/coercion incompatibility handling
- 
-     - Get rid of entityForName/registerEntity, rely only on entity provided by model class, add methods to create tables from model object classes?
-
+     - Get rid of entityForName/registerEntity, rely only on entity provided by model class, add methods to create tables from model object classes
      - Better/more thorough error reporting
  
      MAYBE NOW:
@@ -79,7 +73,8 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 - (id<BCCSQLModelObject>)createOrUpdateModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary <NSString *, id> *)dictionary;
 
 - (id<BCCSQLModelObject>)findModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
-- (NSArray<BCCSQLModelObject> *)findModelObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate; // TO DO
+- (NSArray<BCCSQLModelObject> *)findModelObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass;
+- (NSArray<BCCSQLModelObject> *)findModelObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate;
 
 - (void)deleteObject:(id<BCCSQLModelObject>)object;
 - (void)deleteObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
