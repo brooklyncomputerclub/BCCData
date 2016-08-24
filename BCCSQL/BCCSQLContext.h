@@ -8,6 +8,7 @@
 
 #import <Foundation/Foundation.h>
 
+@class BCCSQLContext;
 @class BCCSQLEntity;
 @class BCCSQLProperty;
 
@@ -15,25 +16,25 @@
      TO DO:
      
      NOW:
-     - Delete multiple objects using (optional) predicate
+     - First class Transaction objects?
+     - Sort descriptors
+     - Relationships/foreign keys?
      - Better type coercion/coercion incompatibility handling
-     - Get rid of entityForName/registerEntity, rely only on entity provided by model class, add methods to create tables from model object classes
-     - Better/more thorough error reporting
- 
-     MAYBE NOW:
-     - Queuing
-     - Transactions
      - Observation
+     - In-Memory Object Cache
  
      LATER:
+     - Get rid of entityForName/registerEntity, rely only on entity provided by model class, add methods to create tables from model object classes?
+     - Better/more thorough error reporting
      - Some sort of scheme for prepared statement caching?
      - Quicker way to add columns to an entity
      - Default column values
-     - Relationships/foreign keys?
      - Swift integration?
      - Versioning/handle DB incompatibility?
      - CloudKit
 */
+
+typedef void (^BCCSQLWorkBlock)(BCCSQLContext *context);
 
 typedef NS_ENUM(NSUInteger, BCCSQLType) {
     BCCSQLTypeText,
@@ -42,6 +43,7 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
     BCCSQLTypeReal,
     BCCSQLTypeBlob
 };
+
 
 @protocol BCCSQLModelObject <NSObject>
 
@@ -78,7 +80,13 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 
 - (void)deleteObject:(id<BCCSQLModelObject>)object;
 - (void)deleteObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue;
-- (void)deleteObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate; // TO DO
+- (void)deleteObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass;
+- (void)deleteObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate;
+
+// Queuing
+- (void)performWorkBlock:(BCCSQLWorkBlock)workBlock;
+- (void)performWorkBlock:(BCCSQLWorkBlock)workBlock andWait:(BOOL)wait;
+- (void)performWorkBlock:(BCCSQLWorkBlock)workBlock andWait:(BOOL)wait error:(NSError **)error;
 
 @end
 
@@ -130,3 +138,5 @@ typedef NS_ENUM(NSUInteger, BCCSQLType) {
 + (void)performTest;
 
 @end
+
+

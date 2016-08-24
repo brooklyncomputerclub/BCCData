@@ -20,6 +20,8 @@
 
 @property (strong, nonatomic) NSMutableDictionary<NSString *, BCCSQLEntity *> *entities;
 
+@property (strong, nonatomic) dispatch_queue_t workerQueue;
+
 - (void)createEntityTables;
 
 - (BOOL)modelObjectExistsForClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue error:(NSError **)error;
@@ -38,6 +40,7 @@
 
 @property (nonatomic, readonly) NSString *createTableSQL;
 @property (nonatomic, readonly) NSString *deleteSQL;
+@property (nonatomic, readonly) NSString *deleteByPrimaryKeySQL;
 @property (nonatomic, readonly) NSString *selectSQL;
 @property (nonatomic, readonly) NSString *findByPrimaryKeySQL;
 @property (nonatomic, readonly) NSString *findByRowIDSQL;
@@ -62,10 +65,11 @@
 
 @end
 
+#pragma mark -
 
 @implementation BCCSQLContext
 
-#pragma mark - Initialization
+#pragma mark Initialization
 
 - (instancetype)initWithDatabasePath:(NSString *)databasePath
 {
@@ -76,6 +80,7 @@
     
     _databasePath = databasePath;
     _databaseConnection = NULL;
+    _workerQueue = NULL;
     
     return self;
 }
@@ -85,7 +90,7 @@
     sqlite3_close_v2(_databaseConnection);
 }
 
-#pragma mark - Database Configuration
+#pragma mark Database Configuration
 
 - (void)initializeDatabase
 {
@@ -108,6 +113,11 @@
         NSLog(@"Error opening database: %s", sqlite3_errstr(err));
         return;
     }
+    
+    // Set up worker queue
+    NSString *workerName = [NSString stringWithFormat:@"com.brooklyncomputerclub.%@.WorkerQueue", NSStringFromClass([self class])];
+    _workerQueue = dispatch_queue_create([workerName UTF8String], DISPATCH_QUEUE_SERIAL);
+    dispatch_set_target_queue(_workerQueue, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0));
     
     [self createEntityTables];
 }
@@ -132,7 +142,7 @@
     }];
 }
 
-#pragma mark - Entities
+#pragma mark Entities
 
 - (void)registerEntity:(BCCSQLEntity *)entity
 {
@@ -148,7 +158,7 @@
     return _entities[entityName];
 }
 
-#pragma mark - Object Create/Update
+#pragma mark Object Create/Update
 
 - (id<BCCSQLModelObject>)createModelObjectOfClass:(Class<BCCSQLModelObject>)modelObjectClass withDictionary:(NSDictionary *)dictionary
 {
@@ -275,7 +285,7 @@ cleanup:
     return createObject ? [self createModelObjectOfClass:modelObjectClass withDictionary:dictionary] : [self updateModelObjectOfClass:modelObjectClass withDictionary:dictionary primaryKeyValue:primaryKeyValue];
 }
 
-#pragma mark - Object Delete
+#pragma mark Object Delete
 
 - (void)deleteObject:(id<BCCSQLModelObject>)object
 {
@@ -310,7 +320,10 @@ cleanup:
         return;
     }
     
-    NSString *deleteSQL = entity.deleteSQL;
+    NSString *deleteSQL = entity.deleteByPrimaryKeySQL;
+    if (!deleteSQL) {
+        return;
+    }
     
     NSError *error;
     sqlite3_stmt *deleteStatement = [self prepareSQLStatement:deleteSQL withParameterValues:@[primaryKeyValue] error:&error];
@@ -327,13 +340,49 @@ cleanup:
     sqlite3_finalize(deleteStatement);
 }
 
+- (void)deleteObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass
+{
+    [self deleteObjectsOfClass:modelObjectClass withPredicate:nil];
+}
+
 - (void)deleteObjectsOfClass:(Class<BCCSQLModelObject>)modelObjectClass withPredicate:(NSPredicate *)predicate
 {
-    // TO DO
+    BCCSQLEntity *entity = [modelObjectClass entity];
+    if (!entity) {
+        return;
+    }
+    
+    NSMutableString *deleteSQL = [entity.deleteSQL mutableCopy];
+    if (!deleteSQL) {
+        return;
+    }
+    
+    NSArray *parameterValues = nil;
+    
+    if (predicate != nil) {
+        NSString *predicateString;
+        
+        [predicate BCCSQL_composeSQLPredicateString:&predicateString parameterValues:&parameterValues];
+        [deleteSQL appendFormat:@" WHERE %@", predicateString];
+    }
+    
+    NSError *error;
+    sqlite3_stmt *deleteStatement = [self prepareSQLStatement:deleteSQL withParameterValues:parameterValues error:&error];
+    if (error != nil) {
+        goto cleanup;
+    }
+    
+    int sqlResult = sqlite3_step(deleteStatement);
+    if (sqlResult == SQLITE_ERROR) {
+        // TO DO: Return Error
+    }
+    
+cleanup:
+    sqlite3_finalize(deleteStatement);
 }
 
 
-#pragma mark - Object Find
+#pragma mark Object Find
 
 - (BOOL)modelObjectExistsForClass:(Class<BCCSQLModelObject>)modelObjectClass primaryKeyValue:(id)primaryKeyValue error:(NSError **)error
 {
@@ -452,7 +501,7 @@ cleanup:
     return foundObjects;
 }
 
-#pragma mark - Prepared Statements
+#pragma mark Prepared Statements
 
 - (sqlite3_stmt *)prepareSQLStatement:(NSString *)SQLString withParameterValues:(NSArray *)parameterValues error:(NSError **)error
 {
@@ -542,8 +591,69 @@ cleanup:
     return object;
 }
 
+#pragma mark Queueing
+
+- (void)performWorkBlock:(BCCSQLWorkBlock)workBlock
+{
+    [self performWorkBlock:workBlock andWait:NO];
+}
+
+- (void)performWorkBlock:(BCCSQLWorkBlock)workBlock andWait:(BOOL)wait
+{
+    [self performWorkBlock:workBlock andWait:wait error:NULL];
+}
+
+- (void)performWorkBlock:(BCCSQLWorkBlock)workBlock andWait:(BOOL)wait error:(NSError **)error
+{
+    if (!workBlock) {
+        return;
+    }
+    
+    if (error != NULL) {
+        *error = nil;
+    }
+    
+    void (^metaBlock)(void) = ^(void) {
+        NSString *beginTransactionString = @"BEGIN TRANSACTION";
+        NSError *transactionError;
+        
+        sqlite3_stmt *transactionStatement = [self prepareSQLStatement:beginTransactionString withParameterValues:nil error:&transactionError];
+        if (transactionError != nil) {
+            return;
+        }
+        
+        int sqlResult = sqlite3_step(transactionStatement);
+        if (sqlResult == SQLITE_ERROR) {
+            return;
+        }
+        
+        workBlock(self);
+        
+        NSString *commitString = @"COMMIT";
+        
+        sqlite3_stmt *commitStatement = [self prepareSQLStatement:commitString withParameterValues:nil error:&transactionError];
+        if (transactionError != nil) {
+            return;
+        }
+        
+        sqlResult = sqlite3_step(commitStatement);
+        if (sqlResult == SQLITE_ERROR) {
+            return;
+        }
+    }
+    
+    ;
+    
+    if (wait) {
+        dispatch_sync(self.workerQueue, metaBlock);
+    } else {
+        dispatch_async(self.workerQueue, metaBlock);
+    }
+}
+
 @end
 
+#pragma mark -
 
 @implementation BCCSQLEntity
 
@@ -610,6 +720,17 @@ cleanup:
 }
 
 - (NSString *)deleteSQL
+{
+    NSString *tableName = self.tableName;
+    if (!tableName) {
+        return nil;
+    }
+    
+    NSString *deleteSQL = [NSString stringWithFormat:@"DELETE FROM %@", tableName];
+    return deleteSQL;
+}
+
+- (NSString *)deleteByPrimaryKeySQL
 {
     NSString *tableName = self.tableName;
     if (!tableName) {
@@ -859,6 +980,7 @@ cleanup:
 
 @end
 
+#pragma mark -
 
 @implementation BCCSQLProperty
 
@@ -921,6 +1043,7 @@ cleanup:
 
 @end
 
+#pragma mark -
 
 @implementation BCCSQLModelObject
 
@@ -950,6 +1073,7 @@ cleanup:
 
 @end
 
+#pragma mark -
 
 @implementation BCCSQLTestModelObject
 
@@ -963,22 +1087,24 @@ cleanup:
     [sqlContext registerEntity:entity];
     [sqlContext initializeDatabase];
     
-    BCCSQLTestModelObject *foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{NSStringFromSelector(@selector(name)): @"Buzz Andersen", NSStringFromSelector(@selector(city)): @"Brooklyn"}];
-    
-    NSLog(@"CREATE: %@", foundObject);
-    
-    foundObject = [sqlContext findModelObjectOfClass:[self class] primaryKeyValue:@(foundObject.objectID)];
-    NSLog(@"FIND: %@", foundObject);
-    
-    //NSPredicate *testPredicate = [NSPredicate predicateWithFormat:@"%K == %@ AND %K == %@", @"name", @"Buzz Andersen", @"city", @"Brooklyn"];
-    //NSArray *foundObjects = [sqlContext findModelObjectsOfClass:[self class] withPredicate:testPredicate];
-    //NSLog(@"FIND: %@", foundObjects);
-    
-    foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{entity.primaryKeyProperty.propertyKey:@(foundObject.objectID),  NSStringFromSelector(@selector(name)): @"Laurence Andersen"}];
-    
-    NSLog(@"UPDATE: %@", foundObject);
-    
-    //[sqlContext deleteObject:foundObject];
+    [sqlContext performWorkBlock:^(BCCSQLContext *context) {
+        BCCSQLTestModelObject *foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{NSStringFromSelector(@selector(name)): @"Buzz Andersen", NSStringFromSelector(@selector(city)): @"Brooklyn"}];
+        
+        NSLog(@"CREATE: %@", foundObject);
+        
+        foundObject = [sqlContext findModelObjectOfClass:[self class] primaryKeyValue:@(foundObject.objectID)];
+        NSLog(@"FIND: %@", foundObject);
+        
+        //NSPredicate *testPredicate = [NSPredicate predicateWithFormat:@"%K == %@ AND %K == %@", @"name", @"Buzz Andersen", @"city", @"Brooklyn"];
+        //NSArray *foundObjects = [sqlContext findModelObjectsOfClass:[self class] withPredicate:testPredicate];
+        //NSLog(@"FIND: %@", foundObjects);
+        
+        foundObject = [sqlContext createOrUpdateModelObjectOfClass:[self class] withDictionary:@{entity.primaryKeyProperty.propertyKey:@(foundObject.objectID),  NSStringFromSelector(@selector(name)): @"Laurence Andersen"}];
+        
+        NSLog(@"UPDATE: %@", foundObject);
+        
+        [sqlContext deleteObjectsOfClass:[self class] withPredicate:[NSPredicate predicateWithFormat:@"%K == %@", NSStringFromSelector(@selector(name)), @"Laurence Andersen"]];
+    }];
 }
 
 + (BCCSQLEntity *)entity
@@ -1020,6 +1146,7 @@ cleanup:
 
 @end
 
+#pragma mark -
 
 @implementation NSPredicate (BCCSQLExtensions)
 
