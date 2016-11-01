@@ -9,6 +9,8 @@
 #import "BCCDataStoreController+MantleSupport.h"
 #import "BCCDataStoreController.h"
 
+#ifdef BCCDataStoreControllerMantleSupport
+
 NSString * const BCCDataStoreControllerMantleSupportErrorDomain = @"BCCDataStoreControllerMantleSupportErrorDomain";
 const NSInteger BCCDataStoreControllerMantleSupportErrorNoClassFound = 2;
 const NSInteger BCCDataStoreControllerMantleSupportErrorInitializationFailed = 3;
@@ -588,3 +590,5 @@ const NSInteger BCCDataStoreControllerMantleSupportErrorInvalidManagedObjectMapp
 }
 
 @end
+
+#endif

@@ -6,8 +6,12 @@
 //
 
 #import <Foundation/Foundation.h>
-#import <Mantle/Mantle.h>
 #import "BCCDataStoreController.h"
+
+#ifdef MantleVersionNumber
+#define BCCDataStoreControllerMantleSupport
+
+#import <Mantle/Mantle.h>
 
 @protocol BCCDataStoreControllerMantleObjectSerializing;
 
@@ -57,3 +61,5 @@
 + (Class _Nonnull)classForDeserializingManagedObject:(NSManagedObject * _Nonnull)managedObject;
 
 @end
+
+#endif
